@@ -88,7 +88,14 @@ def decide(indicators_payload):
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
         )
-        text = resp.content[0].text.strip()
+        # 모델이 답변 앞에 "thinking" 블록을 먼저 보낼 수도 있으므로,
+        # content[0]으로 단정하지 않고 실제 text 블록들만 골라 이어붙인다.
+        text_parts = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
+        text = "".join(text_parts).strip()
+        if not text:
+            raise CommitteeError(f"응답에 text 블록이 없음 (블록 타입: {[getattr(b,'type',None) for b in resp.content]})")
+    except CommitteeError:
+        raise
     except Exception as e:
         raise CommitteeError(f"Anthropic API 호출 실패: {e}")
 

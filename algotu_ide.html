@@ -158,15 +158,15 @@ bindLoad("fileLog",(name,txt)=>renderLogs(txt));
 // ── Railway 연동 (GitHub Gist로 공유된 최신 상태 자동으로 불러오기) ──
 const GIST_KEY="sip_gist_url";
 function parseGistUrl(url){
-  // https://gist.github.com/USER/GISTID 형태에서 USER, GISTID 추출
-  const m=(url||"").match(/gist\.github(?:usercontent)?\.com\/([^/]+)\/([0-9a-f]+)/i);
-  return m?{user:m[1],id:m[2]}:null;
+  // https://gist.github.com/USER/GISTID 또는 https://gist.github.com/GISTID 둘 다 지원 (ID만 추출)
+  const m=(url||"").match(/gist\.github(?:usercontent)?\.com\/(?:[^/\s]+\/)?([0-9a-f]{16,})/i);
+  return m?{id:m[1]}:null;
 }
-async function fetchGistFile(user,id,filename){
-  const url=`https://gist.githubusercontent.com/${user}/${id}/raw/${filename}?t=${Date.now()}`;
+async function fetchGistData(id){
+  const url=`https://api.github.com/gists/${id}?t=${Date.now()}`;
   const r=await fetch(url,{cache:"no-store"});
-  if(!r.ok)throw new Error(filename+" 없음");
-  return r.text();
+  if(!r.ok)throw new Error("gist 조회 실패 ("+r.status+")");
+  return r.json();
 }
 async function refreshFromRailway(){
   const saved=localStorage.getItem(GIST_KEY);
@@ -175,14 +175,11 @@ async function refreshFromRailway(){
   if(!info){ statusEl.textContent="☁ Railway 연동 안 됨"; statusEl.style.color="var(--sub)"; return; }
   statusEl.textContent="☁ 불러오는 중..."; statusEl.style.color="var(--hold)";
   try{
-    const [sigTxt, indTxt, logTxt] = await Promise.allSettled([
-      fetchGistFile(info.user,info.id,"signal.json"),
-      fetchGistFile(info.user,info.id,"indicators.json"),
-      fetchGistFile(info.user,info.id,"trades.log"),
-    ]);
-    if(sigTxt.status==="fulfilled"){ try{signalData=JSON.parse(sigTxt.value);}catch(e){} }
-    if(indTxt.status==="fulfilled"){ try{indData=JSON.parse(indTxt.value);}catch(e){} }
-    if(logTxt.status==="fulfilled"){ renderLogs(logTxt.value); }
+    const data=await fetchGistData(info.id);
+    const files=data.files||{};
+    if(files["signal.json"]){ try{signalData=JSON.parse(files["signal.json"].content);}catch(e){} }
+    if(files["indicators.json"]){ try{indData=JSON.parse(files["indicators.json"].content);}catch(e){} }
+    if(files["trades.log"]){ renderLogs(files["trades.log"].content); }
     renderStrat(); renderNotes(); renderWatch();
     const now=new Date().toLocaleTimeString("ko-KR");
     statusEl.textContent=`☁ Railway 연동됨 · ${now} 갱신`; statusEl.style.color="var(--buy)";
@@ -192,7 +189,7 @@ async function refreshFromRailway(){
 }
 $("btnRailwayConfig").addEventListener("click",()=>{
   const cur=localStorage.getItem(GIST_KEY)||"";
-  const input=prompt("Railway(daily_pipeline.py)가 GITHUB_TOKEN으로 자동 생성한 Gist 주소를 붙여넣으세요.\n(https://gist.github.com/사용자명/gistid 형태, github.com/사용자명?tab=gists 에서 확인)",cur);
+  const input=prompt("Railway 로그에 나온 '상태 Gist 갱신 완료: ...' 뒤의 주소를 그대로 붙여넣으세요.\n(https://gist.github.com/gistid 형태)",cur);
   if(input===null)return;
   if(input.trim()===""){ localStorage.removeItem(GIST_KEY); }
   else{

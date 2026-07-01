@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>신호 내보내기 — Signal Invest Pro (Phase 3 다리)</title>
+<style>
+  :root {
+    --bg: #0f1419; --card: #1a2230; --line: #2b3648;
+    --txt: #e6edf3; --sub: #94a3b8;
+    --buy: #16a34a; --hold: #d97706; --sell: #dc2626;
+    --accent: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+    background: var(--bg); color: var(--txt);
+    display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px;
+  }
+  .wrap { width: 100%; max-width: 460px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--sub); font-size: 13px; margin: 0 0 20px; line-height: 1.5; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  label { display: block; font-size: 13px; color: var(--sub); margin: 14px 0 6px; }
+  .signals { display: flex; gap: 8px; }
+  .signals button {
+    flex: 1; padding: 12px 0; border-radius: 10px; border: 2px solid var(--line);
+    background: transparent; color: var(--txt); font-size: 15px; font-weight: 700; cursor: pointer;
+    transition: all .15s;
+  }
+  .signals button[data-active="BUY"]  { border-color: var(--buy);  background: rgba(22,163,74,.15);  }
+  .signals button[data-active="HOLD"] { border-color: var(--hold); background: rgba(217,119,6,.15);  }
+  .signals button[data-active="SELL"] { border-color: var(--sell); background: rgba(220,38,38,.15);  }
+  select, input[type=range] { width: 100%; }
+  select {
+    padding: 10px; border-radius: 10px; background: var(--bg); color: var(--txt);
+    border: 1px solid var(--line); font-size: 14px;
+  }
+  .conf-row { display: flex; align-items: center; gap: 12px; }
+  .conf-val { font-size: 22px; font-weight: 800; min-width: 54px; text-align: right; }
+  textarea {
+    width: 100%; min-height: 60px; padding: 10px; border-radius: 10px; resize: vertical;
+    background: var(--bg); color: var(--txt); border: 1px solid var(--line); font-size: 13px; font-family: inherit;
+  }
+  .gate { margin-top: 16px; font-size: 12px; padding: 10px 12px; border-radius: 8px; line-height: 1.5; }
+  .gate.ok   { background: rgba(22,163,74,.12);  color: #86efac; }
+  .gate.warn { background: rgba(217,119,6,.12);  color: #fcd34d; }
+  .actions { display: flex; gap: 8px; margin-top: 18px; }
+  .actions button {
+    flex: 1; padding: 13px 0; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  .download { background: var(--accent); color: #fff; }
+  .copy { background: var(--line); color: var(--txt); }
+  pre {
+    margin: 16px 0 0; padding: 12px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 10px; font-size: 12px; overflow-x: auto; color: #cbd5e1;
+  }
+  .hint { color: var(--sub); font-size: 12px; margin-top: 14px; line-height: 1.6; }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; color: #93c5fd; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📤 신호 내보내기</h1>
+  <p class="lead">AI 투자위원회가 낸 판단을 <code>signal.json</code>으로 저장합니다.<br>
+  트레이더가 이 파일을 읽어 자동 실행 — 숫자를 손으로 옮겨적지 않아도 됩니다.</p>
+
+  <div class="card">
+    <label>신호</label>
+    <div class="signals" id="signals">
+      <button data-signal="BUY">BUY</button>
+      <button data-signal="HOLD">HOLD</button>
+      <button data-signal="SELL">SELL</button>
+    </div>
+
+    <label>확신도 (Judge confidence)</label>
+    <div class="conf-row">
+      <input type="range" id="conf" min="0" max="100" value="72">
+      <span class="conf-val" id="confVal">72</span>
+    </div>
+
+    <label>종목</label>
+    <select id="symbol">
+      <option value="SPY">SPY — S&amp;P 500</option>
+      <option value="QQQ">QQQ — Nasdaq 100</option>
+    </select>
+
+    <label>메모 (선택 — Judge 요약 등)</label>
+    <textarea id="note" placeholder="예: 금리차 안정 + VIX 하락, Bull 우세"></textarea>
+
+    <div class="gate" id="gate"></div>
+
+    <div class="actions">
+      <button class="download" id="dl">⬇ signal.json 저장</button>
+      <button class="copy" id="cp">📋 복사</button>
+    </div>
+
+    <pre id="preview"></pre>
+  </div>
+
+  <p class="hint">
+    저장한 <code>signal.json</code>을 트레이더 폴더(이 파일과 같은 곳)에 두고<br>
+    <code>python run_from_signal.py</code> 를 실행하면 끝.<br>
+    ⚠️ 확신도 60 미만이면 트레이더의 리스크 게이트가 매수를 막습니다(안전).
+  </p>
+</div>
+
+<script>
+  const MIN_CONFIDENCE = 60; // config.py와 동일해야 함
+  let state = { signal: "BUY", confidence: 72, symbol: "SPY", note: "" };
+
+  const $ = (id) => document.getElementById(id);
+
+  function render() {
+    // 신호 버튼 활성표시
+    document.querySelectorAll("#signals button").forEach(b => {
+      if (b.dataset.signal === state.signal) b.dataset.active = state.signal;
+      else b.removeAttribute("data-active");
+    });
+    $("confVal").textContent = state.confidence;
+
+    // 리스크 게이트 미리보기 (트레이더 동작 예고)
+    const gate = $("gate");
+    if (state.signal === "SELL") {
+      gate.className = "gate ok";
+      gate.textContent = "🛡 SELL(청산)은 리스크 축소 — 항상 허용됩니다.";
+    } else if (state.signal === "HOLD") {
+      gate.className = "gate ok";
+      gate.textContent = "🛡 HOLD — 동작 없음(유지).";
+    } else if (state.confidence < MIN_CONFIDENCE) {
+      gate.className = "gate warn";
+      gate.textContent = `🛡 확신도 ${state.confidence} < 기준 ${MIN_CONFIDENCE} → 트레이더가 매수를 막습니다(보류).`;
+    } else {
+      gate.className = "gate ok";
+      gate.textContent = `🛡 확신도 ${state.confidence} ≥ ${MIN_CONFIDENCE} → 리스크 게이트의 나머지 조건(킬스위치·손실한도·정규장)을 통과하면 매수.`;
+    }
+
+    $("preview").textContent = JSON.stringify(buildSignal(), null, 2);
+  }
+
+  function buildSignal() {
+    const d = {
+      signal: state.signal,
+      confidence: state.confidence,
+      symbol: state.symbol,
+      created_at: new Date().toISOString().slice(0, 19), // 초까지, 로컬→ISO 형태
+    };
+    if (state.note.trim()) d.note = state.note.trim();
+    return d;
+  }
+
+  document.querySelectorAll("#signals button").forEach(b => {
+    b.addEventListener("click", () => { state.signal = b.dataset.signal; render(); });
+  });
+  $("conf").addEventListener("input", e => { state.confidence = +e.target.value; render(); });
+  $("symbol").addEventListener("change", e => { state.symbol = e.target.value; render(); });
+  $("note").addEventListener("input", e => { state.note = e.target.value; render(); });
+
+  $("dl").addEventListener("click", () => {
+    // 다운로드 시점의 정확한 현재 시각으로 재생성
+    const data = buildSignal();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "signal.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  $("cp").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(buildSignal(), null, 2));
+      $("cp").textContent = "✓ 복사됨";
+      setTimeout(() => ($("cp").textContent = "📋 복사"), 1500);
+    } catch (e) {
+      $("cp").textContent = "복사 실패";
+    }
+  });
+
+  render();
+</script>
+</body>
+</html>

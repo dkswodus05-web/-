@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Invest Pro — AI 시그널</title>
+<style>
+  :root{
+    --bg:#0b0f17;--card:#161d2b;--line:#283447;--txt:#e6edf3;--sub:#8b97a8;
+    --buy:#16a34a;--sell:#dc2626;--hold:#d97706;--accent:#3b82f6;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;min-height:100vh;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,"Segoe UI","Malgun Gothic",sans-serif;padding:24px 16px;}
+  .wrap{max-width:760px;margin:0 auto;}
+  .top{display:flex;align-items:center;gap:8px;color:var(--sub);font-size:12px;margin-bottom:14px;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1.4s infinite;}
+  @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+  h1{font-size:26px;margin:0 0 4px;line-height:1.25;}
+  h1 .accent{color:var(--accent);}
+  .date{color:var(--sub);font-size:13px;margin-bottom:18px;}
+  .load{border:2px dashed var(--line);border-radius:14px;padding:18px;text-align:center;
+    color:var(--sub);font-size:13px;cursor:pointer;margin-bottom:18px;transition:.15s;}
+  .load:hover{border-color:var(--accent);color:var(--txt);}
+  .load input{display:none;}
+  .tabs{display:flex;gap:8px;margin-bottom:18px;}
+  .tabs button{flex:1;padding:10px 0;border-radius:10px;border:1px solid var(--line);
+    background:transparent;color:var(--sub);font-size:13px;font-weight:700;cursor:pointer;transition:.15s;}
+  .tabs button.on{background:var(--card);color:var(--txt);border-color:var(--accent);}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px;}
+  .card .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .sym{font-size:20px;font-weight:800;}
+  .sym small{font-size:12px;color:var(--sub);font-weight:500;margin-left:6px;}
+  .sig{padding:5px 14px;border-radius:999px;font-size:14px;font-weight:800;}
+  .sig-BUY{background:rgba(22,163,74,.16);color:#86efac;}
+  .sig-SELL{background:rgba(220,38,38,.16);color:#fca5a5;}
+  .sig-HOLD{background:rgba(217,119,6,.16);color:#fcd34d;}
+  .conf{margin:8px 0 4px;}
+  .conf .bar{height:8px;background:var(--bg);border-radius:6px;overflow:hidden;}
+  .conf .fill{height:100%;border-radius:6px;}
+  .conf .lbl{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin-bottom:5px;}
+  .regime{display:inline-block;margin-top:10px;font-size:12px;padding:3px 10px;border-radius:8px;
+    background:rgba(59,130,246,.12);color:#93c5fd;}
+  .note{margin-top:10px;font-size:13px;color:var(--sub);line-height:1.5;}
+  .gate{margin-top:10px;font-size:12px;padding:8px 10px;border-radius:8px;line-height:1.4;}
+  .gate.ok{background:rgba(22,163,74,.1);color:#86efac;}
+  .gate.no{background:rgba(217,119,6,.1);color:#fcd34d;}
+  details{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;}
+  summary{cursor:pointer;font-size:13px;color:var(--sub);}
+  .ind{display:grid;grid-template-columns:1fr auto;gap:4px 12px;margin-top:10px;font-size:12px;}
+  .ind .n{color:var(--sub);}
+  .ind .v{text-align:right;font-variant-numeric:tabular-nums;}
+  .foot{color:var(--sub);font-size:11px;text-align:center;margin-top:22px;line-height:1.6;}
+  .empty{color:var(--sub);text-align:center;padding:40px;}
+  code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><span class="dot"></span><span id="status">신호 파일을 불러오세요</span></div>
+  <h1>오늘 주목할 <span class="accent">AI 투자 시그널</span></h1>
+  <div class="date" id="date">—</div>
+
+  <label class="load" id="load">
+    <input type="file" id="file" accept=".json" multiple>
+    📂 <b>signal.json</b> (그리고 선택사항 <b>indicators.json</b>) 을 끌어다 놓거나 클릭
+  </label>
+
+  <div class="tabs" id="tabs">
+    <button data-f="all" class="on">전체</button>
+    <button data-f="up">상승 시그널</button>
+    <button data-f="down">하락 시그널</button>
+  </div>
+
+  <div id="cards"><div class="empty">신호 파일을 불러오면 카드가 표시됩니다.</div></div>
+
+  <div class="foot">
+    본 화면은 AI의 통계적 추정이며 <b>투자 권유가 아닙니다</b>. 모든 투자 판단과 책임은 본인에게 있습니다.<br>
+    신호는 <code>signal.json</code>, 지표는 <code>indicators.json</code> 에서 읽습니다. 기본은 DRY_RUN(연습) 모드입니다.
+  </div>
+</div>
+
+<script>
+const MIN_CONFIDENCE = 60;
+let signalData = null, indicatorData = null, filter = "all";
+
+const $ = id => document.getElementById(id);
+const load = $("load"), fileInput = $("file");
+
+["dragover","dragenter"].forEach(e=>load.addEventListener(e,ev=>{ev.preventDefault();load.style.borderColor="var(--accent)";}));
+["dragleave","drop"].forEach(e=>load.addEventListener(e,ev=>{ev.preventDefault();load.style.borderColor="";}));
+load.addEventListener("drop",ev=>{ev.preventDefault();handleFiles(ev.dataTransfer.files);});
+fileInput.addEventListener("change",e=>handleFiles(e.target.files));
+
+function handleFiles(files){
+  [...files].forEach(f=>{
+    const r=new FileReader();
+    r.onload=()=>{
+      try{
+        const j=JSON.parse(r.result);
+        if(j.signal) signalData=j;
+        else if(j.indicators) indicatorData=j;
+        else if(j.collected_at) indicatorData=j;
+        render();
+      }catch(e){ $("status").textContent="파일 형식 오류: "+f.name; }
+    };
+    r.readAsText(f,"utf-8");
+  });
+}
+
+document.querySelectorAll("#tabs button").forEach(b=>{
+  b.addEventListener("click",()=>{
+    document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("on"));
+    b.classList.add("on"); filter=b.dataset.f; render();
+  });
+});
+
+function signalClass(sig){
+  if(sig==="BUY") return "up";
+  if(sig==="SELL") return "down";
+  return "flat";
+}
+
+function render(){
+  if(!signalData){ return; }
+  $("status").textContent = indicatorData ? "지표 + 신호 로드됨" : "신호 로드됨 (지표 파일 선택)";
+  $("date").textContent = "생성: " + (signalData.created_at || "-");
+
+  const sig = (signalData.signal||"HOLD").toUpperCase();
+  const conf = +signalData.confidence || 0;
+  const sym = signalData.symbol || "SPY";
+  const cls = signalClass(sig);
+
+  // 필터
+  const show = filter==="all" || (filter==="up"&&cls==="up") || (filter==="down"&&cls==="down");
+  if(!show){ $("cards").innerHTML='<div class="empty">이 필터에 해당하는 시그널이 없습니다.</div>'; return; }
+
+  const color = sig==="BUY"?"var(--buy)":sig==="SELL"?"var(--sell)":"var(--hold)";
+  const sigKo = sig==="BUY"?"매수":sig==="SELL"?"매도/청산":"관망";
+
+  // 리스크 게이트 예고
+  let gate;
+  if(sig==="SELL"){ gate=`<div class="gate ok">🛡 매도(청산)는 항상 허용 — 리스크 축소</div>`; }
+  else if(sig==="HOLD"){ gate=`<div class="gate ok">🛡 관망 — 동작 없음</div>`; }
+  else if(conf<MIN_CONFIDENCE){ gate=`<div class="gate no">🛡 확신도 ${conf} < ${MIN_CONFIDENCE} → 매수 보류(안전)</div>`; }
+  else { gate=`<div class="gate ok">🛡 확신도 ${conf} ≥ ${MIN_CONFIDENCE} → 리스크 게이트 통과 시 매수</div>`; }
+
+  // 지표 + 5단계 레짐
+  let indHtml="", regimeHtml="";
+  if(indicatorData && indicatorData.indicators){
+    const inds=indicatorData.indicators;
+    regimeHtml = `<span class="regime">시장 레짐: ${estimateRegime(inds)}</span>`;
+    const rows=Object.entries(inds).slice(0,17).map(([k,v])=>
+      `<div class="n">${k}</div><div class="v">${v.value!=null?v.value:"—"}</div>`).join("");
+    indHtml=`<details><summary>17개 경제지표 보기 (${indicatorData.collected_at?.slice(0,10)||""})</summary><div class="ind">${rows}</div></details>`;
+  }
+
+  $("cards").innerHTML = `
+    <div class="card">
+      <div class="head">
+        <div class="sym">${sym}<small>${sym==="SPY"?"S&P 500":sym==="QQQ"?"Nasdaq 100":""}</small></div>
+        <div class="sig sig-${sig}">${sig} · ${sigKo}</div>
+      </div>
+      <div class="conf">
+        <div class="lbl"><span>AI 확신도</span><span>${conf}/100</span></div>
+        <div class="bar"><div class="fill" style="width:${conf}%;background:${color}"></div></div>
+      </div>
+      ${regimeHtml}
+      ${signalData.note?`<div class="note">💬 ${signalData.note}</div>`:""}
+      ${gate}
+      ${indHtml}
+    </div>`;
+}
+
+// 간단 레짐 추정 (지표 기반) — backtest.py의 5단계 개념을 화면에 표시
+function estimateRegime(inds){
+  const get=n=>{const k=Object.keys(inds).find(x=>x.includes(n));return k?inds[k].value:null;};
+  const yc=get("금리차"), vix=get("VIX"), hy=get("하이일드");
+  let score=0;
+  if(yc!=null) score += yc>0?1:-1;           // 금리차 양수면 +
+  if(vix!=null) score += vix<20?1:vix>30?-2:0;// VIX 낮으면 +
+  if(hy!=null) score += hy<3.5?1:hy>5?-2:0;   // 신용스프레드 낮으면 +
+  if(score>=2) return "공격 (위험선호)";
+  if(score===1) return "균형";
+  if(score===0) return "중립";
+  if(score===-1) return "방어";
+  return "위기 (위험회피)";
+}
+</script>
+</body>
+</html>

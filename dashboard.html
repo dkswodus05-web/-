@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>수익률 대시보드 — Signal Invest Pro</title>
+<style>
+  :root{
+    --bg:#0f1419;--card:#1a2230;--line:#2b3648;--txt:#e6edf3;--sub:#94a3b8;
+    --buy:#16a34a;--sell:#dc2626;--hold:#d97706;--accent:#3b82f6;--block:#64748b;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;min-height:100vh;font-family:-apple-system,"Segoe UI","Malgun Gothic",sans-serif;
+    background:var(--bg);color:var(--txt);padding:28px 18px;}
+  .wrap{max-width:920px;margin:0 auto;}
+  h1{font-size:22px;margin:0 0 4px;}
+  .lead{color:var(--sub);font-size:13px;margin:0 0 20px;}
+  .drop{border:2px dashed var(--line);border-radius:14px;padding:26px;text-align:center;
+    color:var(--sub);font-size:14px;cursor:pointer;transition:.15s;margin-bottom:22px;}
+  .drop:hover{border-color:var(--accent);color:var(--txt);}
+  .drop input{display:none;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px;}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;}
+  .stat .k{font-size:12px;color:var(--sub);margin-bottom:6px;}
+  .stat .v{font-size:22px;font-weight:800;}
+  .pos{color:var(--buy);} .neg{color:var(--sell);}
+  .chartbox{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:22px;}
+  .chartbox h2{font-size:14px;margin:0 0 12px;color:var(--sub);font-weight:600;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);}
+  th{color:var(--sub);font-weight:600;font-size:12px;}
+  .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;}
+  .t-buy{background:rgba(22,163,74,.15);color:#86efac;}
+  .t-sell{background:rgba(220,38,38,.15);color:#fca5a5;}
+  .t-hold{background:rgba(217,119,6,.15);color:#fcd34d;}
+  .t-block{background:rgba(100,116,139,.18);color:#cbd5e1;}
+  .empty{color:var(--sub);text-align:center;padding:40px;}
+  .hint{color:var(--sub);font-size:12px;margin-top:8px;line-height:1.6;}
+  code{background:var(--bg);padding:1px 5px;border-radius:4px;color:#93c5fd;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📊 수익률 대시보드</h1>
+  <p class="lead">트레이더가 남긴 <code>trades.log</code>를 읽어 매매 내역과 자산 추이를 한눈에 보여줍니다.</p>
+
+  <label class="drop" id="drop">
+    <input type="file" id="file" accept=".log,.txt">
+    📂 여기를 클릭하거나 <b>trades.log</b> 파일을 끌어다 놓으세요
+  </label>
+
+  <div id="content">
+    <div class="empty">파일을 불러오면 통계가 표시됩니다.</div>
+  </div>
+
+  <p class="hint">
+    ⚠️ DRY_RUN(연습) 로그의 매수/매도는 실제 체결이 아니라 시뮬입니다.<br>
+    자산 추이는 로그에 기록된 "계정 상태: 자산 $..." 값을 시간순으로 이은 것입니다.
+  </p>
+</div>
+
+<script>
+const drop=document.getElementById('drop'), fileInput=document.getElementById('file'), content=document.getElementById('content');
+['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.style.borderColor='var(--accent)';}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.style.borderColor='';}));
+drop.addEventListener('drop',ev=>{if(ev.dataTransfer.files[0])readFile(ev.dataTransfer.files[0]);});
+fileInput.addEventListener('change',e=>{if(e.target.files[0])readFile(e.target.files[0]);});
+
+function readFile(f){
+  const r=new FileReader();
+  r.onload=()=>parseAndRender(r.result);
+  r.readAsText(f,'utf-8');
+}
+
+function parseAndRender(text){
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  const trades=[];      // 실제 주문 전송
+  const signals=[];     // 신호 처리 시작
+  const equitySeries=[];// 자산 추이
+  let blocked=0, halted=0;
+
+  for(const line of lines){
+    const tm=line.match(/^\[(.*?)\]\s*(.*)$/);
+    if(!tm) continue;
+    const ts=tm[1], msg=tm[2];
+
+    // 자산 추이
+    const eq=msg.match(/자산 \$([\d,]+)/);
+    if(eq) equitySeries.push({ts, val:+eq[1].replace(/,/g,'')});
+
+    // 신호 처리
+    const sg=msg.match(/신호=(BUY|SELL|HOLD)\s+확신도=(\d+)/);
+    if(sg) signals.push({ts, signal:sg[1], conf:+sg[2]});
+
+    // 실제 주문
+    if(/🟢 매수 주문 전송/.test(msg)){
+      const n=msg.match(/notional': ([\d.]+)/);
+      trades.push({ts, type:'BUY', detail:n?('$'+(+n[1]).toLocaleString()):''});
+    }
+    if(/🔴 전량 매도/.test(msg)) trades.push({ts, type:'SELL', detail:'전량 청산'});
+
+    // 차단/정지
+    if(/⛔ 차단/.test(msg)) blocked++;
+    if(/안전 정지/.test(msg)) halted++;
+  }
+
+  const lastEq=equitySeries.length?equitySeries[equitySeries.length-1].val:null;
+  const firstEq=equitySeries.length?equitySeries[0].val:null;
+  const pnl=(firstEq&&lastEq)?(lastEq/firstEq-1):null;
+
+  let html='';
+
+  // 통계 카드
+  html+='<div class="cards">';
+  html+=card('총 신호 처리', signals.length+'회');
+  html+=card('실제 주문(시뮬)', trades.length+'건');
+  html+=card('게이트 차단', blocked+'회');
+  html+=card('안전 정지', halted+'회');
+  if(lastEq!=null) html+=card('최근 자산', '$'+lastEq.toLocaleString());
+  if(pnl!=null) html+=card('누적 손익', (pnl>=0?'+':'')+(pnl*100).toFixed(2)+'%', pnl>=0?'pos':'neg');
+  html+='</div>';
+
+  // 자산 추이 차트
+  html+='<div class="chartbox"><h2>자산 추이</h2>';
+  html+= equitySeries.length>1 ? sparkline(equitySeries) : '<div class="empty">자산 데이터가 1건 이하라 추이를 그릴 수 없습니다.</div>';
+  html+='</div>';
+
+  // 매매 내역
+  html+='<div class="chartbox"><h2>매매 내역 (실제 주문)</h2>';
+  if(trades.length){
+    html+='<table><tr><th>시각</th><th>동작</th><th>내용</th></tr>';
+    for(const t of trades.slice().reverse()){
+      const cls=t.type==='BUY'?'t-buy':'t-sell';
+      html+=`<tr><td>${t.ts}</td><td><span class="tag ${cls}">${t.type}</span></td><td>${t.detail}</td></tr>`;
+    }
+    html+='</table>';
+  } else html+='<div class="empty">아직 실제 주문(시뮬 포함)이 없습니다.</div>';
+  html+='</div>';
+
+  // 신호 이력
+  html+='<div class="chartbox"><h2>신호 이력</h2>';
+  if(signals.length){
+    html+='<table><tr><th>시각</th><th>신호</th><th>확신도</th></tr>';
+    for(const s of signals.slice().reverse().slice(0,20)){
+      const cls=s.signal==='BUY'?'t-buy':s.signal==='SELL'?'t-sell':'t-hold';
+      html+=`<tr><td>${s.ts}</td><td><span class="tag ${cls}">${s.signal}</span></td><td>${s.conf}점</td></tr>`;
+    }
+    html+='</table>';
+  } else html+='<div class="empty">신호 기록이 없습니다.</div>';
+  html+='</div>';
+
+  content.innerHTML=html;
+}
+
+function card(k,v,cls=''){
+  return `<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+}
+
+function sparkline(series){
+  const W=860,H=180,pad=30;
+  const vals=series.map(s=>s.val);
+  const min=Math.min(...vals), max=Math.max(...vals), range=(max-min)||1;
+  const pts=series.map((s,i)=>{
+    const x=pad+(i/(series.length-1))*(W-2*pad);
+    const y=H-pad-((s.val-min)/range)*(H-2*pad);
+    return [x,y];
+  });
+  const path=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const area=path+` L ${pts[pts.length-1][0].toFixed(1)} ${H-pad} L ${pts[0][0].toFixed(1)} ${H-pad} Z`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/></linearGradient></defs>
+    <path d="${area}" fill="url(#g)"/>
+    <path d="${path}" fill="none" stroke="#3b82f6" stroke-width="2"/>
+    <text x="${pad}" y="16" fill="#94a3b8" font-size="11">$${max.toLocaleString()}</text>
+    <text x="${pad}" y="${H-8}" fill="#94a3b8" font-size="11">$${min.toLocaleString()}</text>
+  </svg>`;
+}
+</script>
+</body>
+</html>

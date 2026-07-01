@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Invest Pro — 종합 대시보드</title>
+<style>
+  :root{
+    --bg:#0a0e16;--panel:#121927;--card:#172033;--line:#26334a;--txt:#e6edf3;--sub:#8392a8;
+    --buy:#16c47f;--sell:#ef4444;--hold:#f59e0b;--cyan:#22d3ee;--accent:#3b82f6;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;min-height:100vh;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,"Segoe UI","Malgun Gothic",sans-serif;padding:18px 14px;font-size:14px;}
+  .wrap{max-width:1100px;margin:0 auto;}
+  .tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;}
+  .tabs button{padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);
+    color:var(--sub);font-size:13px;font-weight:700;cursor:pointer;}
+  .tabs button.on{background:var(--card);color:var(--cyan);border-color:var(--cyan);}
+  .load{border:2px dashed var(--line);border-radius:12px;padding:14px;text-align:center;color:var(--sub);
+    font-size:12px;cursor:pointer;margin-bottom:16px;}
+  .load:hover{border-color:var(--accent);color:var(--txt);}
+  .load input{display:none;}
+
+  /* 요약 카드 */
+  .summary{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px;}
+  .scard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .scard .k{font-size:11px;color:var(--sub);margin-bottom:6px;}
+  .scard .v{font-size:24px;font-weight:800;line-height:1.1;}
+  .scard .s{font-size:11px;color:var(--sub);margin-top:4px;}
+  .pos{color:var(--buy);} .neg{color:var(--sell);}
+  @media(max-width:760px){.summary{grid-template-columns:repeat(2,1fr);}}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px;}
+  .panel h2{font-size:13px;margin:0 0 14px;color:var(--cyan);font-weight:700;letter-spacing:.3px;}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:760px){.two{grid-template-columns:1fr;}}
+
+  /* 브리핑 */
+  .brief{font-size:14px;line-height:1.7;color:#cdd6e3;font-style:italic;}
+  .bull h3{color:var(--buy);font-size:13px;margin:0 0 8px;}
+  .bear h3{color:var(--sell);font-size:13px;margin:0 0 8px;}
+  .args{margin:0;padding-left:18px;font-size:13px;color:var(--sub);line-height:1.7;}
+
+  /* 지표 테이블 */
+  table{width:100%;border-collapse:collapse;}
+  th{text-align:left;padding:8px 10px;font-size:11px;color:var(--sub);font-weight:600;border-bottom:1px solid var(--line);}
+  td{padding:10px;border-bottom:1px solid var(--line);font-size:13px;}
+  .grp td{background:var(--card);color:var(--cyan);font-weight:700;font-size:11px;letter-spacing:.5px;}
+  .badge{display:inline-block;min-width:48px;text-align:center;padding:3px 8px;border-radius:7px;
+    font-weight:800;font-size:12px;border:1.5px solid;}
+  .b-pos{color:var(--buy);border-color:var(--buy);background:rgba(22,196,127,.08);}
+  .b-neg{color:var(--sell);border-color:var(--sell);background:rgba(239,68,68,.08);}
+  .b-mid{color:var(--hold);border-color:var(--hold);background:rgba(245,158,11,.08);}
+  .num{font-variant-numeric:tabular-nums;}
+  .date{font-size:11px;color:var(--sub);}
+
+  /* 실행 가이드 */
+  .rank{display:inline-block;background:var(--sell);color:#fff;font-size:10px;font-weight:800;
+    padding:3px 9px;border-radius:5px;}
+  .rank.r1{background:#ef4444;} .rank.r2{background:#6b7280;}
+  .tk{font-weight:800;background:#0a0e16;padding:3px 9px;border-radius:5px;border:1px solid var(--line);}
+  .act-BUY{color:var(--buy);font-weight:800;} .act-SELL{color:var(--sell);font-weight:800;}
+  .act-HOLD{color:var(--hold);font-weight:800;}
+
+  .foot{color:var(--sub);font-size:11px;text-align:center;margin-top:20px;line-height:1.6;}
+  .tabpane{display:none;} .tabpane.on{display:block;}
+  .empty{color:var(--sub);text-align:center;padding:40px;}
+  code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
+  canvas{max-width:100%;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <label class="load" id="load">
+    <input type="file" id="file" accept=".json" multiple>
+    📂 <b>signal.json</b> + <b>indicators.json</b> 을 끌어다 놓거나 클릭 (둘 다 권장)
+  </label>
+
+  <div class="tabs">
+    <button data-t="main" class="on">📊 실전 대시보드</button>
+    <button data-t="ind">📈 지표 상세</button>
+    <button data-t="guide">🎯 실행 가이드</button>
+  </div>
+
+  <!-- 메인 -->
+  <div class="tabpane on" id="tab-main">
+    <div class="summary" id="summary"></div>
+    <div class="panel">
+      <h2>🧠 AI 위원회 실장 브리핑 (CIO BRIEFING)</h2>
+      <div class="brief" id="brief">신호 파일을 불러오세요.</div>
+    </div>
+    <div class="two">
+      <div class="panel bull"><h3>🐂 BULL (낙관) 근거</h3><ul class="args" id="bull"></ul></div>
+      <div class="panel bear"><h3>🐻 BEAR (비관) 근거</h3><ul class="args" id="bear"></ul></div>
+    </div>
+    <div class="panel">
+      <h2>📉 수익률 추이 (시스템 vs 벤치마크) — 데모</h2>
+      <canvas id="chart" height="120"></canvas>
+    </div>
+  </div>
+
+  <!-- 지표 상세 -->
+  <div class="tabpane" id="tab-ind">
+    <div class="panel">
+      <h2>📈 17개 경제지표 상세</h2>
+      <table id="indtable"><tbody><tr><td class="empty">indicators.json을 불러오세요.</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- 실행 가이드 -->
+  <div class="tabpane" id="tab-guide">
+    <div class="panel">
+      <h2>🎯 실행 가이드 (오늘의 매매 지시)</h2>
+      <table id="guidetable"><tbody><tr><td class="empty">signal.json을 불러오세요.</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <div class="foot">
+    본 화면은 AI의 통계적 추정이며 <b>투자 권유가 아닙니다</b>. 모든 판단과 책임은 본인에게 있습니다.<br>
+    자산·수익률은 DRY_RUN 데모값입니다. Alpaca Paper 키 연결 시 실제 잔고로 대체됩니다.
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+let signalData=null, indData=null;
+const $=id=>document.getElementById(id);
+
+// 탭 전환
+document.querySelectorAll(".tabs button").forEach(b=>{
+  b.addEventListener("click",()=>{
+    document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("on"));
+    document.querySelectorAll(".tabpane").forEach(x=>x.classList.remove("on"));
+    b.classList.add("on"); $("tab-"+b.dataset.t).classList.add("on");
+  });
+});
+
+// 파일 로드
+const load=$("load"), fileInput=$("file");
+["dragover","dragenter"].forEach(e=>load.addEventListener(e,ev=>{ev.preventDefault();load.style.borderColor="var(--accent)";}));
+["dragleave","drop"].forEach(e=>load.addEventListener(e,ev=>{ev.preventDefault();load.style.borderColor="";}));
+load.addEventListener("drop",ev=>{ev.preventDefault();handle(ev.dataTransfer.files);});
+fileInput.addEventListener("change",e=>handle(e.target.files));
+function handle(files){
+  [...files].forEach(f=>{
+    const r=new FileReader();
+    r.onload=()=>{try{const j=JSON.parse(r.result);
+      if(j.signal)signalData=j; else if(j.indicators||j.collected_at)indData=j; renderAll();
+    }catch(e){alert("형식 오류: "+f.name);}};
+    r.readAsText(f,"utf-8");
+  });
+}
+
+// ── 지표 판단 기준 정의 ──
+const RULES={
+  "장단기_금리차(10Y-2Y)":{ok:v=>v>0,  rule:"0 이상 유지",grp:"MACRO"},
+  "하이일드_신용스프레드":{ok:v=>v<7.0, rule:"7.0 미만 유지",grp:"MACRO"},
+  "회사채_신용스프레드":{ok:v=>v<2.0,  rule:"낮을수록 안정",grp:"MACRO"},
+  "산업생산지수":{ok:v=>v>100,         rule:"100 이상 확장",grp:"MACRO"},
+  "실업률":{ok:v=>v<5.0,               rule:"5% 미만 안정",grp:"MACRO"},
+  "기대인플레이션(10Y)":{ok:v=>v<3.0,  rule:"3% 미만 안정",grp:"MACRO"},
+  "연준기준금리":{ok:v=>true,          rule:"통화정책 기조",grp:"MACRO"},
+  "달러인덱스(광의)":{ok:v=>true,       rule:"달러 강세 여부",grp:"MACRO"},
+  "국채10년_금리":{ok:v=>true,         rule:"장기금리",grp:"MACRO"},
+  "국채2년_금리":{ok:v=>true,          rule:"단기금리",grp:"MACRO"},
+  "CPI_소비자물가":{ok:v=>true,        rule:"인플레 수준",grp:"MACRO"},
+  "소매판매":{ok:v=>true,              rule:"소비 동향",grp:"MACRO"},
+  "주택착공":{ok:v=>true,              rule:"부동산 경기",grp:"MACRO"},
+  "M2_통화량":{ok:v=>true,             rule:"유동성",grp:"MACRO"},
+  "VIX_변동성지수":{ok:v=>v<20,        rule:"20 미만 안정",grp:"MARKET"},
+  "S&P500":{ok:v=>true,               rule:"시장 추세",grp:"MARKET"},
+  "WTI_유가":{ok:v=>true,             rule:"원자재 압력",grp:"MARKET"},
+};
+
+function renderAll(){ renderSummary(); renderBrief(); renderInd(); renderGuide(); renderChart(); }
+
+function regimeOf(){
+  if(!indData||!indData.indicators) return {name:"중립",risk:"NEUTRAL",fear:50};
+  const g=n=>{const k=Object.keys(indData.indicators).find(x=>x.includes(n));return k?indData.indicators[k].value:null;};
+  const yc=g("금리차"),vix=g("VIX"),hy=g("하이일드");
+  let s=0;
+  if(yc!=null)s+=yc>0?1:-1;
+  if(vix!=null)s+=vix<20?1:vix>30?-2:0;
+  if(hy!=null)s+=hy<3.5?1:hy>5?-2:0;
+  const fear=vix!=null?Math.max(0,Math.min(100,Math.round(100-vix*2))):50;
+  if(s>=2)return{name:"공격",risk:"AGGRESSIVE",fear};
+  if(s===1)return{name:"균형",risk:"BALANCED",fear};
+  if(s===0)return{name:"중립",risk:"NEUTRAL",fear};
+  if(s===-1)return{name:"방어",risk:"DEFENSE",fear};
+  return{name:"위기",risk:"CRISIS",fear};
+}
+
+function renderSummary(){
+  if(!signalData){return;}
+  const r=regimeOf();
+  const total = indData?Object.keys(indData.indicators).length:0;
+  const got = indData?Object.values(indData.indicators).filter(v=>v.value!=null).length:0;
+  const rate = total?Math.round(got/total*100):0;
+  // 데모 자산 (실제 연동 전)
+  const equity=23177, pnlDay=6.85, cum=14.95;
+  $("summary").innerHTML=`
+    ${scard("오늘의 시장 공포",r.fear,r.risk+" 국면")}
+    ${scard("데이터 수집 신뢰도",rate+"%",`${got}/${total} 수집 (누락 ${total-got})`)}
+    ${scard("실제 자산 현황","$"+equity.toLocaleString(),`<span class="pos">+${pnlDay}% (데모)</span>`)}
+    ${scard("AI 위험도 신호",r.risk,"레짐: "+r.name)}
+    ${scard("시스템 누적 수익","+"+cum+"%","데모값",true)}`;
+}
+function scard(k,v,s,pos){
+  return `<div class="scard"><div class="k">${k}</div><div class="v ${pos?'pos':''}">${v}</div><div class="s">${s}</div></div>`;
+}
+
+function renderBrief(){
+  if(!signalData)return;
+  const sig=(signalData.signal||"HOLD").toUpperCase();
+  const conf=+signalData.confidence||0;
+  const r=regimeOf();
+  $("brief").textContent = `"${signalData.note||'오늘의 신호를 종합한 결과입니다.'}" — 현재 시장 레짐은 [${r.name}], `+
+    `AI 위원회 판단은 ${sig} (확신도 ${conf}). ${conf<60&&sig==='BUY'?'확신도가 기준 미만이라 매수는 보류됩니다.':''}`;
+  // Bull/Bear (지표 기반 자동 생성)
+  const bull=[], bear=[];
+  if(indData&&indData.indicators){
+    const g=n=>{const k=Object.keys(indData.indicators).find(x=>x.includes(n));return k?indData.indicators[k].value:null;};
+    const yc=g("금리차"),vix=g("VIX"),hy=g("하이일드"),un=g("실업률");
+    if(yc!=null&&yc>0)bull.push(`장단기 금리차 ${yc} 양수 — 침체 신호 아님`);
+    if(vix!=null&&vix<20)bull.push(`VIX ${vix} 안정권 — 시장 변동성 낮음`);
+    if(hy!=null&&hy<3.5)bull.push(`하이일드 스프레드 ${hy} 낮음 — 신용 양호`);
+    if(un!=null&&un<5)bull.push(`실업률 ${un}% 안정 — 고용 견조`);
+    if(vix!=null&&vix>25)bear.push(`VIX ${vix} 상승 — 변동성 경계`);
+    if(hy!=null&&hy>5)bear.push(`하이일드 스프레드 ${hy} 확대 — 신용 위험`);
+    if(yc!=null&&yc<0)bear.push(`금리차 ${yc} 역전 — 침체 경고`);
+    bear.push("시장 강세에도 기술적 과열 가능성은 상존");
+  }
+  if(!bull.length)bull.push("지표 파일(indicators.json)을 불러오면 근거가 표시됩니다");
+  if(!bear.length)bear.push("지표 파일(indicators.json)을 불러오면 근거가 표시됩니다");
+  $("bull").innerHTML=bull.map(x=>`<li>${x}</li>`).join("");
+  $("bear").innerHTML=bear.map(x=>`<li>${x}</li>`).join("");
+}
+
+function renderInd(){
+  if(!indData||!indData.indicators){return;}
+  const inds=indData.indicators;
+  let rows="", lastGrp="";
+  for(const [name,info] of Object.entries(inds)){
+    const rule=RULES[name]||{ok:()=>true,rule:"-",grp:"기타"};
+    if(rule.grp!==lastGrp){rows+=`<tr class="grp"><td colspan="4">${rule.grp}</td></tr>`;lastGrp=rule.grp;}
+    const v=info.value;
+    let cls="b-mid";
+    if(v!=null && RULES[name]){ cls = rule.ok(v)?"b-pos":"b-neg"; }
+    rows+=`<tr>
+      <td>${name}</td>
+      <td><span class="badge ${cls}">${v!=null?v:"—"}</span></td>
+      <td class="sub" style="color:var(--sub)">${rule.rule}</td>
+      <td class="num">${v!=null?v:"—"}<div class="date">${info.date||""} · ${info.source||""}</div></td>
+    </tr>`;
+  }
+  $("indtable").innerHTML=`<thead><tr><th>지표명</th><th>값</th><th>판단 기준</th><th>실제 수치 / 수집일</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+function renderGuide(){
+  if(!signalData){return;}
+  const sig=(signalData.signal||"HOLD").toUpperCase();
+  const conf=+signalData.confidence||0;
+  const sym=signalData.symbol||"SPY";
+  const pct = sym==="SPY"?30:sym==="QQQ"?25:0;
+  const willBuy = sig==="BUY"&&conf>=60;
+  const rows=[];
+  // 활성 종목
+  rows.push({rank:1,tk:sym,act:sig,qty: willBuy?"비중매수":sig==="SELL"?"전량":"-",
+    tgt: sig==="BUY"?(willBuy?pct+"%":"0% (보류)"):sig==="SELL"?"0%":pct+"%",
+    why: sig==="BUY"?(willBuy?"BUY 신호 — 리스크 게이트 통과 예상":`확신도 ${conf}<60 매수 보류`):sig==="SELL"?"SELL 신호 — 청산":"HOLD — 유지"});
+  // 비활성 종목(현재 전략 유니버스 밖)
+  const other = sym==="SPY"?"QQQ":"SPY";
+  rows.push({rank:2,tk:other,act:"HOLD",qty:"-",tgt:"-",why:"현재 활성 종목 아님 (ACTIVE_SYMBOL 외)"});
+  let html=`<thead><tr><th>RANK</th><th>티커</th><th>지시</th><th>수량</th><th>목표 비중</th><th>판단 사유</th></tr></thead><tbody>`;
+  html+=rows.map(r=>`<tr>
+    <td><span class="rank r${r.rank}">RANK ${r.rank}</span></td>
+    <td><span class="tk">${r.tk}</span></td>
+    <td class="act-${r.act}">${r.act}</td>
+    <td>${r.qty}</td><td>${r.tgt}</td>
+    <td style="color:var(--sub)">${r.why}</td></tr>`).join("");
+  $("guidetable").innerHTML=html+"</tbody>";
+}
+
+let chartObj=null;
+function renderChart(){
+  const ctx=$("chart"); if(!ctx||!window.Chart)return;
+  // 데모 수익률 곡선
+  const labels=Array.from({length:20},(_,i)=>`D${i+1}`);
+  const sys=[0,1,0.5,-1,-2,-1,0,2,3,2,4,5,4,6,7,6,8,10,12,14.95];
+  const bench=[0,0.5,1,1.5,2,2.5,2,3,3.5,3,4,4.5,5,5.5,6,5.5,6.5,7,7.5,8];
+  if(chartObj)chartObj.destroy();
+  chartObj=new Chart(ctx,{type:"line",data:{labels,datasets:[
+    {label:"시스템 수익률 %",data:sys,borderColor:"#22d3ee",backgroundColor:"rgba(34,211,238,.1)",fill:true,tension:.3},
+    {label:"벤치마크 %",data:bench,borderColor:"#8392a8",borderDash:[5,4],fill:false,tension:.3},
+  ]},options:{plugins:{legend:{labels:{color:"#8392a8"}}},
+    scales:{x:{ticks:{color:"#8392a8"},grid:{color:"#1a2233"}},y:{ticks:{color:"#8392a8"},grid:{color:"#1a2233"}}}}});
+}
+</script>
+</body>
+</html>

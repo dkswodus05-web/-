@@ -14,6 +14,7 @@ Claude 앱이 꺼져 있어도 동작합니다 — PC와 파이썬만 켜져 있
 import sys
 import os
 import json
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -25,10 +26,17 @@ from signal_io import write_signal, SignalError
 from executor import execute_signal
 from trade_logger import log, LOG_FILE
 
+MAX_ACCOUNT_HISTORY = 365   # 계좌 히스토리는 최근 1년 치만 보관
+MAX_TRADE_HISTORY = 500     # 매매 내역은 최근 500건만 보관
 
-def _publish_current_state():
-    """지금까지 만들어진 결과(신호/지표/로그)를 Gist에 올려 IDE에서 볼 수 있게 한다.
-    실패해도 조용히 넘어간다 — 상태 공유는 부가 기능일 뿐 본 파이프라인을 막으면 안 됨."""
+
+def _publish_current_state(result=None):
+    """지금까지 만들어진 결과(신호/지표/로그/계좌·매매 히스토리)를 Gist에 올려
+    IDE에서 볼 수 있게 한다. 실패해도 조용히 넘어간다 — 상태 공유는 부가 기능일 뿐
+    본 파이프라인을 막으면 안 됨.
+
+    result: execute_signal()이 반환한 구조화 결과 dict (실행까지 못 갔으면 None).
+    """
     try:
         sig_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "signal.json")
         signal_txt = open(sig_path, encoding="utf-8").read() if os.path.exists(sig_path) else None
@@ -44,7 +52,56 @@ def _publish_current_state():
             log_txt = "\n".join(log_txt.splitlines()[-300:])  # 최근 300줄만
     except Exception:
         log_txt = None
-    publish_status.publish(signal_txt, ind_txt, log_txt)
+
+    # 기존 Gist에 이미 쌓여있는 계좌/매매 히스토리를 읽어와서 이번 결과를 이어붙인다.
+    existing = publish_status.fetch_existing_files()
+    try:
+        account_history = json.loads(existing.get("account_history.json") or "[]")
+        if not isinstance(account_history, list):
+            account_history = []
+    except Exception:
+        account_history = []
+    try:
+        trade_history = json.loads(existing.get("trade_history.json") or "[]")
+        if not isinstance(trade_history, list):
+            trade_history = []
+    except Exception:
+        trade_history = []
+
+    if result is not None and result.get("equity") is not None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        account_history.append({
+            "ts": now_iso,
+            "equity": result.get("equity"),
+            "cash": result.get("cash"),
+            "holding_qty": result.get("holding_qty"),
+            "symbol": result.get("symbol"),
+            "signal": result.get("signal"),
+            "confidence": result.get("confidence"),
+            "mode": result.get("mode"),
+        })
+        account_history = account_history[-MAX_ACCOUNT_HISTORY:]
+
+        if result.get("action") in ("BUY", "SELL"):
+            trade_history.append({
+                "ts": now_iso,
+                "symbol": result.get("symbol"),
+                "action": result.get("action"),
+                "notional": result.get("notional"),
+                "status": result.get("status"),
+                "detail": result.get("detail"),
+                "mode": result.get("mode"),
+            })
+            trade_history = trade_history[-MAX_TRADE_HISTORY:]
+
+    files = {
+        "signal.json": signal_txt,
+        "indicators.json": ind_txt,
+        "trades.log": log_txt,
+        "account_history.json": json.dumps(account_history, ensure_ascii=False, indent=2),
+        "trade_history.json": json.dumps(trade_history, ensure_ascii=False, indent=2),
+    }
+    publish_status.publish(files)
 
 
 def main():
@@ -90,14 +147,16 @@ def main():
         return
 
     # 4) 리스크 게이트 → 주문 실행 (Phase 2 재사용, DRY_RUN 기본)
-    execute_signal(decision["signal"], decision["confidence"])
+    result = execute_signal(decision["signal"], decision["confidence"])
 
     log("========== 일일 파이프라인 종료 ==========\n")
+    return result
 
 
 if __name__ == "__main__":
+    _result = None
     try:
-        main()
+        _result = main()
     finally:
         # 성공하든 중간에 안전 정지하든, 지금까지의 상태는 항상 공유 시도
-        _publish_current_state()
+        _publish_current_state(_result)

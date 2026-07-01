@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Signal Invest Pro — Trading IDE</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
 :root{
   --bg:#0a0e16;--panel:#0f1622;--card:#141d2b;--line:#222d3f;
@@ -64,7 +65,7 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
   .top{position:sticky;top:0;z-index:5;}
   .pane{border-right:none;border-bottom:1px solid var(--line);max-height:none;}
   .logs{border-top:none;}
-  .chat{order:99;} /* 데모용 챗봇은 맨 아래로 */
+  .chat{order:99;} /* 매매 내역은 맨 아래로 */
 }
 </style>
 </head>
@@ -105,6 +106,8 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
   <div class="pane account">
     <h3>MY ACCOUNT (계좌)</h3>
     <div id="accountBody"></div>
+    <h3>자산 추이 (계좌 히스토리)</h3>
+    <div style="padding:10px 12px;"><canvas id="equityChart" height="110"></canvas></div>
     <h3>CURRENT HOLDINGS (보유 종목)</h3>
     <div id="holdingsBody"></div>
     <h3>WATCHLIST (관심 종목 · SPY/QQQ)</h3>
@@ -121,15 +124,10 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
     <div id="notesBody"></div>
   </div>
 
-  <!-- 챗봇 -->
+  <!-- 매매 내역 -->
   <div class="pane chat">
-    <h3>AI AGENT CHAT</h3>
-    <div id="chatBody" style="flex:1;padding:14px;color:var(--sub);font-size:12px;line-height:1.7;">
-      시장에 대해 무엇이든 물어보세요.<br><br>
-      예) "오늘 신호 근거 알려줘"<br>
-      예) "VIX 지금 어때?"<br><br>
-      <span style="font-size:11px;">※ 이 챗봇은 표시용 데모입니다. 실제 응답은 백엔드 연동이 필요합니다.</span>
-    </div>
+    <h3>TRADE HISTORY (매매 내역)</h3>
+    <div id="tradeHistoryBody"></div>
   </div>
 
   <!-- 시스템 로그 -->
@@ -144,7 +142,7 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
 </div>
 <script>
 const $=id=>document.getElementById(id);
-let signalData=null, indData=null;
+let signalData=null, indData=null, accountHistory=[], tradeHistory=[], equityChartInstance=null;
 const MIN_CONF=60;
 
 // 이 프로젝트의 상태 공유 Gist 기본값 (daily_pipeline.py가 자동 갱신).
@@ -195,7 +193,9 @@ async function refreshFromRailway(){
     if(files["signal.json"]){ try{signalData=JSON.parse(files["signal.json"].content);}catch(e){} }
     if(files["indicators.json"]){ try{indData=JSON.parse(files["indicators.json"].content);}catch(e){} }
     if(files["trades.log"]){ renderLogs(files["trades.log"].content); }
-    renderStrat(); renderNotes(); renderWatch();
+    if(files["account_history.json"]){ try{accountHistory=JSON.parse(files["account_history.json"].content)||[];}catch(e){accountHistory=[];} }
+    if(files["trade_history.json"]){ try{tradeHistory=JSON.parse(files["trade_history.json"].content)||[];}catch(e){tradeHistory=[];} }
+    renderStrat(); renderNotes(); renderWatch(); renderAccount(); renderEquityChart(); renderTradeHistory();
     const now=new Date().toLocaleTimeString("ko-KR");
     statusEl.textContent=`☁ Railway 연동됨 · ${now} 갱신`; statusEl.style.color="var(--buy)";
   }catch(e){
@@ -215,15 +215,79 @@ $("btnRailwayConfig").addEventListener("click",()=>{
 });
 $("btnRailwayRefresh").addEventListener("click",refreshFromRailway);
 
-// ── 계좌 (데모값, Alpaca 연동 시 실제값으로 대체) ──
+// ── 계좌 (account_history.json의 최신 항목 = 실제 파이프라인 실행 결과) ──
 function renderAccount(){
-  const equity=100000, pl=0, plPct=0, cash=100000;
+  if(!accountHistory.length){
+    $("accountBody").innerHTML=`<div class="empty">아직 계좌 기록이 없습니다<br><span style="font-size:11px">파이프라인이 한 번 더 실행되면 표시됩니다</span></div>`;
+    $("holdingsBody").innerHTML=`<div class="empty">보유 종목 정보 없음</div>`;
+    return;
+  }
+  const latest=accountHistory[accountHistory.length-1];
+  const prev=accountHistory.length>1?accountHistory[accountHistory.length-2]:null;
+  const equity=+latest.equity||0, cash=+latest.cash||0;
+  const base=prev?(+prev.equity||equity):equity;
+  const pl=equity-base;
+  const plPct=base?(pl/base*100):0;
+  const modeColor=/DRY/.test(latest.mode||"")?"var(--hold)":/PAPER/.test(latest.mode||"")?"var(--cyan)":"var(--sell)";
   $("accountBody").innerHTML=`
-    <div class="kv"><span class="k">총 자산</span><span class="v">$${equity.toLocaleString()}</span></div>
-    <div class="kv"><span class="k">손익</span><span class="v ${pl>=0?'pos':'neg'}">${pl>=0?'+':''}$${pl} (${plPct}%)</span></div>
-    <div class="kv"><span class="k">현금</span><span class="v">$${cash.toLocaleString()}</span></div>
-    <div class="kv"><span class="k">모드</span><span class="v" style="color:var(--hold)">DRY_RUN (데모)</span></div>`;
-  $("holdingsBody").innerHTML=`<div class="empty">보유 종목 없음 (현금)<br><span style="font-size:11px">Alpaca Paper 키 연결 시 실제 보유가 표시됩니다</span></div>`;
+    <div class="kv"><span class="k">총 자산</span><span class="v">$${equity.toLocaleString(undefined,{maximumFractionDigits:0})}</span></div>
+    <div class="kv"><span class="k">손익 (전회 대비)</span><span class="v ${pl>=0?'pos':'neg'}">${pl>=0?'+':''}$${pl.toLocaleString(undefined,{maximumFractionDigits:0})} (${plPct>=0?'+':''}${plPct.toFixed(2)}%)</span></div>
+    <div class="kv"><span class="k">현금</span><span class="v">$${cash.toLocaleString(undefined,{maximumFractionDigits:0})}</span></div>
+    <div class="kv"><span class="k">모드</span><span class="v" style="color:${modeColor}">${latest.mode||"—"}</span></div>
+    <div class="kv"><span class="k">최근 갱신</span><span class="v" style="font-size:11px;font-weight:400;color:var(--sub)">${latest.ts?new Date(latest.ts).toLocaleString("ko-KR"):"—"}</span></div>`;
+  const qty=+latest.holding_qty||0;
+  if(qty>0){
+    $("holdingsBody").innerHTML=`<table><tr><th>종목</th><th>수량</th></tr><tr><td><b>${latest.symbol||"-"}</b></td><td>${qty}</td></tr></table>`;
+  } else {
+    $("holdingsBody").innerHTML=`<div class="empty">보유 종목 없음 (현금)</div>`;
+  }
+}
+
+// ── 자산 추이 그래프 (Chart.js) ──
+function renderEquityChart(){
+  const canvas=$("equityChart");
+  if(!canvas||typeof Chart==="undefined")return;
+  const labels=accountHistory.map(h=>h.ts?new Date(h.ts).toLocaleDateString("ko-KR",{month:"2-digit",day:"2-digit"}):"");
+  const data=accountHistory.map(h=>+h.equity||null);
+  if(equityChartInstance){ equityChartInstance.destroy(); equityChartInstance=null; }
+  if(!accountHistory.length)return;
+  equityChartInstance=new Chart(canvas.getContext("2d"),{
+    type:"line",
+    data:{labels, datasets:[{
+      label:"자산(equity)", data,
+      borderColor:"#22d3ee", backgroundColor:"rgba(34,211,238,.12)",
+      borderWidth:2, tension:.25, pointRadius:2, fill:true,
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:"#7a8aa0",font:{size:9}},grid:{color:"#222d3f"}},
+        y:{ticks:{color:"#7a8aa0",font:{size:9}},grid:{color:"#222d3f"}},
+      },
+    },
+  });
+  canvas.parentElement.style.height="130px";
+}
+
+// ── 매매 내역 (trade_history.json) ──
+function renderTradeHistory(){
+  if(!tradeHistory.length){
+    $("tradeHistoryBody").innerHTML=`<div class="empty" style="padding:24px;">아직 매매 기록이 없습니다<br><span style="font-size:11px">BUY/SELL이 실제 실행되면 여기 쌓입니다</span></div>`;
+    return;
+  }
+  const rows=[...tradeHistory].reverse().slice(0,100);
+  let html='<table><tr><th>시각</th><th>종목</th><th>액션</th><th>금액</th><th>상태</th></tr>';
+  html+=rows.map(t=>{
+    const c=t.action==="BUY"?"var(--buy)":"var(--sell)";
+    const ts=t.ts?new Date(t.ts).toLocaleString("ko-KR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
+    const notional=t.notional?`$${(+t.notional).toLocaleString(undefined,{maximumFractionDigits:0})}`:"—";
+    return `<tr><td style="font-size:10px;color:var(--sub);white-space:nowrap;">${ts}</td><td>${t.symbol||"-"}</td>`+
+      `<td style="color:${c};font-weight:700;">${t.action}</td><td>${notional}</td>`+
+      `<td style="font-size:10px;color:var(--sub);">${t.status||""}</td></tr>`;
+  }).join("");
+  html+="</table>";
+  $("tradeHistoryBody").innerHTML=html;
 }
 
 // ── 전략 ──
@@ -314,7 +378,7 @@ $("btnEngine").addEventListener("click",()=>{
 });
 
 // 초기 렌더
-renderAccount(); renderStrat(); renderNotes(); renderWatch();
+renderAccount(); renderStrat(); renderNotes(); renderWatch(); renderEquityChart(); renderTradeHistory();
 $("logsBody").innerHTML=`<div class="empty">불러오는 중...</div>`;
 refreshFromRailway();
 setInterval(refreshFromRailway, 5*60*1000); // 5분마다 자동 새로고침

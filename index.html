@@ -79,9 +79,8 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
       <span style="color:var(--sub);font-size:11px;">— Trading IDE (SPY/QQQ · Alpaca · FRED)</span>
     </div>
     <div class="engine">
-      <span class="badge dry">● DRY_RUN</span>
-      <span class="badge stop" id="engineState">● STOPPED</span>
-      <button class="btn-engine" id="btnEngine">▶ START ENGINE</button>
+      <span class="badge" id="modeBadge">● 모드 확인 중...</span>
+      <span class="badge stop" id="lastRunBadge">최근 실행: —</span>
       <span style="width:1px;height:18px;background:var(--line);margin:0 4px;"></span>
       <span id="railwayStatus" style="font-size:11px;color:var(--sub);">☁ 불러오는 중...</span>
       <button class="btn-engine" id="btnRailwayConfig" style="background:var(--accent);color:#fff;">🔗 연동</button>
@@ -195,7 +194,7 @@ async function refreshFromRailway(){
     if(files["trades.log"]){ renderLogs(files["trades.log"].content); }
     if(files["account_history.json"]){ try{accountHistory=JSON.parse(files["account_history.json"].content)||[];}catch(e){accountHistory=[];} }
     if(files["trade_history.json"]){ try{tradeHistory=JSON.parse(files["trade_history.json"].content)||[];}catch(e){tradeHistory=[];} }
-    renderStrat(); renderNotes(); renderWatch(); renderAccount(); renderEquityChart(); renderTradeHistory();
+    renderStrat(); renderNotes(); renderWatch(); renderAccount(); renderEquityChart(); renderTradeHistory(); renderEngineStatus();
     const now=new Date().toLocaleTimeString("ko-KR");
     statusEl.textContent=`☁ Railway 연동됨 · ${now} 갱신`; statusEl.style.color="var(--buy)";
   }catch(e){
@@ -364,21 +363,24 @@ function renderLogs(text){
   }).join("")+'</table>';
 }
 
-// ── 엔진 토글 (표시용) ──
-$("btnEngine").addEventListener("click",()=>{
-  const s=$("engineState"); const b=$("btnEngine");
-  if(s.textContent.includes("STOPPED")){
-    s.textContent="● RUNNING"; s.style.color="var(--buy)"; s.style.borderColor="var(--buy)";
-    b.textContent="■ STOP ENGINE"; b.style.background="var(--sell)"; b.style.color="#fff";
-    alert("DRY_RUN 모드 — 실제 주문은 나가지 않습니다 (표시용).\n실거래는 본인이 직접 .env에서 설정해야 합니다.");
-  } else {
-    s.textContent="● STOPPED"; s.style.color="var(--sub)"; s.style.borderColor="var(--line)";
-    b.textContent="▶ START ENGINE"; b.style.background="var(--buy)"; b.style.color="#04130c";
+// ── 실제 실행 상태 배지 (account_history.json의 최신 항목 기반 — 표시만 하고 아무 것도 제어하지 않음) ──
+// 실제 자동매매는 이 화면과 무관하게 Railway Cron 스케줄로 매일 실행된다.
+function renderEngineStatus(){
+  const modeBadge=$("modeBadge"), lastRunBadge=$("lastRunBadge");
+  if(!accountHistory.length){
+    modeBadge.textContent="● 실행 기록 없음"; modeBadge.style.color="var(--sub)"; modeBadge.style.borderColor="var(--line)";
+    lastRunBadge.textContent="최근 실행: —";
+    return;
   }
-});
+  const latest=accountHistory[accountHistory.length-1];
+  const mode=latest.mode||"—";
+  const color=/DRY/.test(mode)?"var(--hold)":/PAPER/.test(mode)?"var(--cyan)":"var(--sell)";
+  modeBadge.textContent=`● ${mode}`; modeBadge.style.color=color; modeBadge.style.borderColor=color;
+  lastRunBadge.textContent=`최근 실행: ${latest.ts?new Date(latest.ts).toLocaleString("ko-KR"):"—"}`;
+}
 
 // 초기 렌더
-renderAccount(); renderStrat(); renderNotes(); renderWatch(); renderEquityChart(); renderTradeHistory();
+renderAccount(); renderStrat(); renderNotes(); renderWatch(); renderEquityChart(); renderTradeHistory(); renderEngineStatus();
 $("logsBody").innerHTML=`<div class="empty">불러오는 중...</div>`;
 refreshFromRailway();
 setInterval(refreshFromRailway, 5*60*1000); // 5분마다 자동 새로고침

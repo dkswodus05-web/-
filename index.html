@@ -45,9 +45,6 @@ body{margin:0;height:100vh;overflow:hidden;background:var(--bg);color:var(--txt)
 .strat{grid-area:strat;} .account{grid-area:account;}
 .notes{grid-area:notes;} .chat{grid-area:chat;border-right:none;}
 .logs{grid-area:logs;background:var(--panel);border-top:1px solid var(--line);overflow:auto;}
-.load{margin:10px 12px;border:1px dashed var(--line);border-radius:8px;padding:8px;text-align:center;
-  color:var(--sub);font-size:11px;cursor:pointer;}
-.load input{display:none;}
 .empty{color:var(--sub);text-align:center;padding:24px;font-size:12px;}
 .pos{color:var(--buy);} .neg{color:var(--sell);}
 table{width:100%;border-collapse:collapse;}
@@ -116,10 +113,6 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
   <!-- 마스터 프롬프트 / 신호 -->
   <div class="pane notes">
     <h3>AI 신호 & 마스터 프롬프트</h3>
-    <label class="load" id="loadSignal">
-      <input type="file" id="fileSignal" accept=".json" multiple>
-      📂 signal.json / indicators.json 불러오기
-    </label>
     <div id="notesBody"></div>
   </div>
 
@@ -132,10 +125,6 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
   <!-- 시스템 로그 -->
   <div class="pane logs">
     <h3>SYSTEM LOGS (trades.log)</h3>
-    <label class="load" id="loadLog">
-      <input type="file" id="fileLog" accept=".log,.txt">
-      📂 trades.log 불러오기
-    </label>
     <div id="logsBody"></div>
   </div>
 </div>
@@ -147,25 +136,6 @@ const MIN_CONF=60;
 // 이 프로젝트의 상태 공유 Gist 기본값 (daily_pipeline.py가 자동 갱신).
 // 다른 Gist를 쓰고 싶을 때만 "🔗 연동"으로 덮어쓰면 됨.
 const DEFAULT_GIST_ID="d6e06c315bb709e6533ee3a369684761";
-
-// ── 파일 로드 ──
-function bindLoad(inputId, handler){
-  const el=$(inputId);
-  el.addEventListener("change",e=>{
-    [...e.target.files].forEach(f=>{
-      const r=new FileReader();
-      r.onload=()=>handler(f.name, r.result);
-      r.readAsText(f,"utf-8");
-    });
-  });
-}
-bindLoad("fileSignal",(name,txt)=>{
-  try{const j=JSON.parse(txt);
-    if(j.signal)signalData=j; else if(j.indicators||j.collected_at)indData=j;
-    renderStrat(); renderNotes(); renderWatch();
-  }catch(e){alert("형식 오류: "+name);}
-});
-bindLoad("fileLog",(name,txt)=>renderLogs(txt));
 
 // ── Railway 연동 (GitHub Gist로 공유된 최신 상태 자동으로 불러오기) ──
 const GIST_KEY="sip_gist_url";

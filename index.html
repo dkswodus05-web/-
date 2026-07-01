@@ -28,8 +28,12 @@ body{margin:0;height:100vh;overflow:hidden;background:var(--bg);color:var(--txt)
 .top .logo{width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,#3b82f6,#22d3ee);
   display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:#fff;}
 .top .engine{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.badge{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;border:1px solid var(--line);}
+.badge{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;border:1px solid var(--line);
+  display:inline-flex;align-items:center;}
 .badge.stop{color:var(--sub);} .badge.dry{color:var(--hold);border-color:var(--hold);}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;flex:none;}
+.icon-btn{display:inline-flex;align-items:center;gap:6px;}
+.side .ic svg{display:block;}
 .btn-engine{padding:6px 16px;border-radius:6px;border:none;background:var(--buy);color:#04130c;
   font-weight:800;font-size:12px;cursor:pointer;}
 /* 사이드바 */
@@ -76,20 +80,34 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
       <span style="color:var(--sub);font-size:11px;">— Trading IDE (SPY/QQQ · Alpaca · FRED)</span>
     </div>
     <div class="engine">
-      <span class="badge" id="modeBadge">● 모드 확인 중...</span>
+      <span class="badge" id="modeBadge"><span class="dot" style="background:var(--sub)"></span>모드 확인 중...</span>
       <span class="badge stop" id="lastRunBadge">최근 실행: —</span>
       <span style="width:1px;height:18px;background:var(--line);margin:0 4px;"></span>
-      <span id="railwayStatus" style="font-size:11px;color:var(--sub);">☁ 불러오는 중...</span>
-      <button class="btn-engine" id="btnRailwayConfig" style="background:var(--accent);color:#fff;">🔗 연동</button>
-      <button class="btn-engine" id="btnRailwayRefresh" style="background:var(--card);color:var(--cyan);border:1px solid var(--line);">🔄</button>
+      <span id="railwayStatus" class="icon-btn" style="font-size:11px;color:var(--sub);">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a5 5 0 01-1-9.9 6 6 0 0111.5 1.9A4.5 4.5 0 0117.5 19z"/></svg>
+        <span id="railwayStatusText">불러오는 중...</span>
+      </span>
+      <button class="btn-engine icon-btn" id="btnRailwayConfig" style="background:var(--accent);color:#fff;">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 017 7h2"/><path d="M15 7h2a5 5 0 010 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        연동
+      </button>
+      <button class="btn-engine icon-btn" id="btnRailwayRefresh" style="background:var(--card);color:var(--cyan);border:1px solid var(--line);justify-content:center;">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15"/></svg>
+      </button>
     </div>
   </div>
 
   <!-- 사이드바 -->
   <div class="side">
-    <div class="ic on" title="전략">📈</div>
-    <div class="ic" title="포트폴리오">📊</div>
-    <div class="ic" title="계정">👤</div>
+    <div class="ic on" title="전략">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></svg>
+    </div>
+    <div class="ic" title="포트폴리오">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="20" x2="5" y2="12"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="19" y1="20" x2="19" y2="4"/></svg>
+    </div>
+    <div class="ic" title="계정">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.87 3.13-6 7-6s7 2.13 7 6"/></svg>
+    </div>
   </div>
 
   <!-- 전략 -->
@@ -153,9 +171,9 @@ async function fetchGistData(id){
 async function refreshFromRailway(){
   const saved=localStorage.getItem(GIST_KEY);
   const info=parseGistUrl(saved) || (DEFAULT_GIST_ID?{id:DEFAULT_GIST_ID}:null);
-  const statusEl=$("railwayStatus");
-  if(!info){ statusEl.textContent="☁ Railway 연동 안 됨"; statusEl.style.color="var(--sub)"; return; }
-  statusEl.textContent="☁ 불러오는 중..."; statusEl.style.color="var(--hold)";
+  const statusEl=$("railwayStatus"), statusText=$("railwayStatusText");
+  if(!info){ statusText.textContent="Railway 연동 안 됨"; statusEl.style.color="var(--sub)"; return; }
+  statusText.textContent="불러오는 중..."; statusEl.style.color="var(--hold)";
   try{
     const data=await fetchGistData(info.id);
     const files=data.files||{};
@@ -166,9 +184,9 @@ async function refreshFromRailway(){
     if(files["trade_history.json"]){ try{tradeHistory=JSON.parse(files["trade_history.json"].content)||[];}catch(e){tradeHistory=[];} }
     renderStrat(); renderNotes(); renderWatch(); renderAccount(); renderEquityChart(); renderTradeHistory(); renderEngineStatus();
     const now=new Date().toLocaleTimeString("ko-KR");
-    statusEl.textContent=`☁ Railway 연동됨 · ${now} 갱신`; statusEl.style.color="var(--buy)";
+    statusText.textContent=`Railway 연동됨 · ${now} 갱신`; statusEl.style.color="var(--buy)";
   }catch(e){
-    statusEl.textContent="☁ 불러오기 실패"; statusEl.style.color="var(--sell)";
+    statusText.textContent="불러오기 실패"; statusEl.style.color="var(--sell)";
   }
 }
 $("btnRailwayConfig").addEventListener("click",()=>{
@@ -338,14 +356,16 @@ function renderLogs(text){
 function renderEngineStatus(){
   const modeBadge=$("modeBadge"), lastRunBadge=$("lastRunBadge");
   if(!accountHistory.length){
-    modeBadge.textContent="● 실행 기록 없음"; modeBadge.style.color="var(--sub)"; modeBadge.style.borderColor="var(--line)";
+    modeBadge.innerHTML=`<span class="dot" style="background:var(--sub)"></span>실행 기록 없음`;
+    modeBadge.style.color="var(--sub)"; modeBadge.style.borderColor="var(--line)";
     lastRunBadge.textContent="최근 실행: —";
     return;
   }
   const latest=accountHistory[accountHistory.length-1];
   const mode=latest.mode||"—";
   const color=/DRY/.test(mode)?"var(--hold)":/PAPER/.test(mode)?"var(--cyan)":"var(--sell)";
-  modeBadge.textContent=`● ${mode}`; modeBadge.style.color=color; modeBadge.style.borderColor=color;
+  modeBadge.innerHTML=`<span class="dot" style="background:${color}"></span>${mode}`;
+  modeBadge.style.color=color; modeBadge.style.borderColor=color;
   lastRunBadge.textContent=`최근 실행: ${latest.ts?new Date(latest.ts).toLocaleString("ko-KR"):"—"}`;
 }
 

@@ -20,9 +20,31 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
 import fred_collector
 import ai_committee
+import publish_status
 from signal_io import write_signal, SignalError
 from executor import execute_signal
-from trade_logger import log
+from trade_logger import log, LOG_FILE
+
+
+def _publish_current_state():
+    """지금까지 만들어진 결과(신호/지표/로그)를 Gist에 올려 IDE에서 볼 수 있게 한다.
+    실패해도 조용히 넘어간다 — 상태 공유는 부가 기능일 뿐 본 파이프라인을 막으면 안 됨."""
+    try:
+        sig_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "signal.json")
+        signal_txt = open(sig_path, encoding="utf-8").read() if os.path.exists(sig_path) else None
+    except Exception:
+        signal_txt = None
+    try:
+        ind_txt = open(fred_collector.OUT_FILE, encoding="utf-8").read() if os.path.exists(fred_collector.OUT_FILE) else None
+    except Exception:
+        ind_txt = None
+    try:
+        log_txt = open(LOG_FILE, encoding="utf-8").read() if os.path.exists(LOG_FILE) else None
+        if log_txt:
+            log_txt = "\n".join(log_txt.splitlines()[-300:])  # 최근 300줄만
+    except Exception:
+        log_txt = None
+    publish_status.publish(signal_txt, ind_txt, log_txt)
 
 
 def main():
@@ -74,4 +96,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        # 성공하든 중간에 안전 정지하든, 지금까지의 상태는 항상 공유 시도
+        _publish_current_state()

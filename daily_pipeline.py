@@ -141,6 +141,7 @@ def main():
         write_signal(
             decision["signal"], decision["confidence"],
             symbol=config.ACTIVE_SYMBOL, note=decision["note"],
+            bull=decision.get("bull"), bear=decision.get("bear"),
         )
     except SignalError as e:
         log(f"⛔ signal.json 기록 실패 — 안전 정지: {e}")

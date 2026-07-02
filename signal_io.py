@@ -35,8 +35,9 @@ class SignalError(Exception):
     pass
 
 
-def write_signal(signal, confidence, symbol=None, note=""):
-    """신호를 signal.json으로 저장 (대시보드 대신 코드로 만들 때 사용)."""
+def write_signal(signal, confidence, symbol=None, note="", bull=None, bear=None):
+    """신호를 signal.json으로 저장 (대시보드 대신 코드로 만들 때 사용).
+    bull/bear: (선택) AI 위원회의 낙관/비관 근거 문자열 리스트. IDE의 토론 근거 표시에 쓰인다."""
     signal = (signal or "HOLD").upper()
     if signal not in VALID_SIGNALS:
         raise SignalError(f"알 수 없는 신호: {signal} (BUY/HOLD/SELL 중 하나여야 함)")
@@ -56,6 +57,10 @@ def write_signal(signal, confidence, symbol=None, note=""):
         data["symbol"] = str(symbol).upper()
     if note:
         data["note"] = str(note)
+    if bull:
+        data["bull"] = [str(x) for x in bull]
+    if bear:
+        data["bear"] = [str(x) for x in bear]
 
     with open(SIGNAL_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

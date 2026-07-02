@@ -93,6 +93,8 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
     <div class="engine">
       <span class="badge" id="modeBadge"><span class="dot" style="background:var(--sub)"></span>모드 확인 중...</span>
       <span class="badge stop" id="lastRunBadge">최근 실행: —</span>
+      <span class="badge" id="regimeBadge" title="VIX 기준 5단계 레짐 (참고용)">레짐 확인 중...</span>
+      <span class="badge stop" id="simReturnBadge">누적(SIM) —</span>
       <span style="width:1px;height:18px;background:var(--line);margin:0 4px;"></span>
       <span id="railwayStatus" class="icon-btn" style="font-size:11px;color:var(--sub);">
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a5 5 0 01-1-9.9 6 6 0 0111.5 1.9A4.5 4.5 0 0117.5 19z"/></svg>
@@ -212,7 +214,7 @@ async function refreshFromRailway(){
     if(files["trades.log"]){ renderLogs(files["trades.log"].content); }
     if(files["account_history.json"]){ try{accountHistory=JSON.parse(files["account_history.json"].content)||[];}catch(e){accountHistory=[];} }
     if(files["trade_history.json"]){ try{tradeHistory=JSON.parse(files["trade_history.json"].content)||[];}catch(e){tradeHistory=[];} }
-    renderStrat(); renderNotes(); renderWatch(); renderAccount(); renderEquityChart(); renderTradeHistory(); renderEngineStatus();
+    renderStrat(); renderNotes(); renderWatch(); renderAccount(); renderEquityChart(); renderTradeHistory(); renderEngineStatus(); renderRegimeBadge(); renderSimReturn();
     const now=new Date().toLocaleTimeString("ko-KR");
     statusText.textContent=`Railway 연동됨 · ${now} 갱신`; statusEl.style.color="var(--buy)";
   }catch(e){
@@ -319,6 +321,19 @@ function renderStrat(){
   else if(sig==="HOLD")gate="🛡 관망 — 동작 없음";
   else if(conf<MIN_CONF)gate=`🛡 확신도 ${conf}<${MIN_CONF} → 매수 보류`;
   else gate=`🛡 확신도 ${conf}≥${MIN_CONF} → 게이트 통과 시 매수`;
+  const bull=Array.isArray(signalData.bull)?signalData.bull:[];
+  const bear=Array.isArray(signalData.bear)?signalData.bear:[];
+  const debateHtml=(bull.length||bear.length)?`
+      <div style="margin:12px;padding:0 2px;">
+        <div style="font-size:11px;font-weight:700;color:var(--buy);margin-bottom:4px;">🐂 Bull 근거</div>
+        <ul style="margin:0 0 10px;padding-left:16px;font-size:11px;color:var(--sub);line-height:1.6;">
+          ${bull.map(b=>`<li>${b}</li>`).join("")||'<li>—</li>'}
+        </ul>
+        <div style="font-size:11px;font-weight:700;color:var(--sell);margin-bottom:4px;">🐻 Bear 근거</div>
+        <ul style="margin:0;padding-left:16px;font-size:11px;color:var(--sub);line-height:1.6;">
+          ${bear.map(b=>`<li>${b}</li>`).join("")||'<li>—</li>'}
+        </ul>
+      </div>`:"";
   $("stratBody").innerHTML=`
     <div style="margin:12px;padding:14px;background:var(--card);border:1px solid var(--line);border-radius:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -331,7 +346,8 @@ function renderStrat(){
       ${signalData.note?`<div style="margin-top:10px;font-size:12px;color:var(--sub);line-height:1.5;">💬 ${signalData.note}</div>`:""}
       <div style="margin-top:10px;font-size:11px;padding:7px 9px;background:rgba(59,130,246,.1);border-radius:7px;color:#93c5fd;">${gate}</div>
       <div style="margin-top:8px;font-size:10px;color:var(--sub);">생성: ${signalData.created_at||"-"}</div>
-    </div>`;
+    </div>
+    ${debateHtml}`;
 }
 
 // ── 관심종목 (지표 기반 SPY/QQQ) ──
@@ -399,6 +415,45 @@ function renderEngineStatus(){
   lastRunBadge.textContent=`최근 실행: ${latest.ts?new Date(latest.ts).toLocaleString("ko-KR"):"—"}`;
 }
 
+// ── 시장 레짐 배지 (VIX 기반 참고용 5단계 분류 — backtest.py 정식 레짐과는 다른 간이 지표) ──
+const REGIME_BANDS=[
+  {max:15, name:"공격", color:"var(--buy)"},
+  {max:20, name:"균형", color:"var(--buy)"},
+  {max:25, name:"중립", color:"var(--hold)"},
+  {max:35, name:"방어", color:"var(--hold)"},
+  {max:Infinity, name:"위기", color:"var(--sell)"},
+];
+function renderRegimeBadge(){
+  const badge=$("regimeBadge");
+  let vixVal=null;
+  if(indData&&indData.indicators){
+    const k=Object.keys(indData.indicators).find(x=>x.includes("VIX"));
+    if(k) vixVal=indData.indicators[k].value;
+  }
+  if(vixVal==null){
+    badge.textContent="레짐 정보 없음"; badge.style.color="var(--sub)"; badge.style.borderColor="var(--line)";
+    return;
+  }
+  const band=REGIME_BANDS.find(b=>vixVal<b.max);
+  badge.innerHTML=`<span class="dot" style="background:${band.color}"></span>${band.name} (VIX ${vixVal})`;
+  badge.style.color=band.color; badge.style.borderColor=band.color;
+}
+
+// ── 누적수익률(SIM) 배지 — account_history.json 첫 기록 대비 최신 자산 변화율 ──
+function renderSimReturn(){
+  const badge=$("simReturnBadge");
+  if(accountHistory.length<1){
+    badge.textContent="누적(SIM) —";
+    return;
+  }
+  const first=+accountHistory[0].equity||0;
+  const latest=+accountHistory[accountHistory.length-1].equity||0;
+  if(!first){ badge.textContent="누적(SIM) —"; return; }
+  const ret=(latest/first-1)*100;
+  badge.textContent=`누적(SIM) ${ret>=0?'+':''}${ret.toFixed(2)}%`;
+  badge.style.color=ret>=0?"var(--buy)":"var(--sell)";
+}
+
 // ── 사이드바 아이콘 (전략 기본화면 / 포트폴리오=백테스트 성과 / 계정=계좌로 이동) ──
 function setActiveIcon(id){
   document.querySelectorAll(".side .ic").forEach(el=>el.classList.remove("on"));
@@ -429,7 +484,7 @@ $("backtestModal").addEventListener("click",e=>{
 });
 
 // 초기 렌더
-renderAccount(); renderStrat(); renderNotes(); renderWatch(); renderEquityChart(); renderTradeHistory(); renderEngineStatus();
+renderAccount(); renderStrat(); renderNotes(); renderWatch(); renderEquityChart(); renderTradeHistory(); renderEngineStatus(); renderRegimeBadge(); renderSimReturn();
 $("logsBody").innerHTML=`<div class="empty">불러오는 중...</div>`;
 refreshFromRailway();
 setInterval(refreshFromRailway, 5*60*1000); // 5분마다 자동 새로고침

@@ -34,19 +34,23 @@ SYSTEM_PROMPT = """당신은 미국 증시 매크로 지표를 분석하는 AI �
 Bull(낙관), Bear(비관), Judge(심판) 세 역할을 한 번에 수행합니다.
 
 절차:
-1. Bull: 주어진 지표를 근거로 매수(BUY) 의견의 근거를 2~3개 제시
-2. Bear: 같은 지표를 근거로 매도/관망(SELL/HOLD) 의견의 근거를 2~3개 제시
+1. Bull: 주어진 지표를 근거로 매수(BUY) 의견의 근거를 3~4개 제시.
+   각 근거는 1~2문장으로, 어떤 지표의 어떤 수치가 왜(어떤 메커니즘으로) 시장에
+   긍정적인지 구체적으로 설명할 것. 단순 나열이 아니라 인과관계를 풀어서 쓸 것.
+2. Bear: 같은 지표를 근거로 매도/관망(SELL/HOLD) 의견의 근거를 3~4개 제시.
+   Bull과 동일하게 각 근거를 1~2문장으로 구체적 수치와 인과관계를 포함해 설명할 것.
 3. Judge: Bull과 Bear를 종합해 최종 신호와 확신도를 결정. 불확실하면 보수적으로 HOLD.
    참고로 5단계 레짐(공격·균형·중립·방어·위기) 관점으로 시장을 분류하면 판단에 도움이 됩니다.
+   note는 2~3문장으로, 왜 이 신호와 확신도를 택했는지 핵심 논리를 설명할 것.
 
 이 시스템은 투자 자문이 아니라 도구의 출력입니다. 반드시 아래 JSON 형식으로만,
 다른 설명 텍스트 없이 응답하세요:
 {
-  "bull": ["근거1", "근거2"],
-  "bear": ["근거1", "근거2"],
+  "bull": ["구체적 근거 문장1", "구체적 근거 문장2", "구체적 근거 문장3"],
+  "bear": ["구체적 근거 문장1", "구체적 근거 문장2", "구체적 근거 문장3"],
   "signal": "BUY 또는 HOLD 또는 SELL 중 하나",
   "confidence": 0에서 100 사이 정수,
-  "note": "Judge의 한 줄 요약"
+  "note": "Judge의 종합 판단 (2~3문장)"
 }"""
 
 
@@ -84,7 +88,7 @@ def decide(indicators_payload):
     try:
         resp = client.messages.create(
             model=ANTHROPIC_MODEL,
-            max_tokens=1024,
+            max_tokens=2048,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
         )
@@ -120,10 +124,16 @@ def decide(indicators_payload):
     if not (0 <= confidence <= 100):
         raise CommitteeError(f"확신도 범위 오류: {confidence}")
 
+    def _clean_points(points):
+        """근거 리스트를 안전하게 정리: 문자열만, 항목당 400자, 최대 5개."""
+        if not isinstance(points, list):
+            return []
+        return [str(p)[:400] for p in points[:5]]
+
     return {
         "signal": signal,
         "confidence": confidence,
-        "note": str(data.get("note", ""))[:300],
-        "bull": data.get("bull", []),
-        "bear": data.get("bear", []),
+        "note": str(data.get("note", ""))[:500],
+        "bull": _clean_points(data.get("bull", [])),
+        "bear": _clean_points(data.get("bear", [])),
     }

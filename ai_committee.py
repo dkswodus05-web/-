@@ -88,7 +88,9 @@ def decide(indicators_payload):
     try:
         resp = client.messages.create(
             model=ANTHROPIC_MODEL,
-            max_tokens=2048,
+            max_tokens=4096,  # claude-sonnet-5는 답변 전에 내부적으로 생각하는 토큰도
+                              # 이 한도 안에서 쓰기 때문에, 근거를 길게 요청하는 지금
+                              # 프롬프트에서는 여유 있게 잡아야 JSON이 중간에 잘리지 않는다.
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
         )
@@ -98,6 +100,11 @@ def decide(indicators_payload):
         text = "".join(text_parts).strip()
         if not text:
             raise CommitteeError(f"응답에 text 블록이 없음 (블록 타입: {[getattr(b,'type',None) for b in resp.content]})")
+        if getattr(resp, "stop_reason", None) == "max_tokens":
+            raise CommitteeError(
+                f"응답이 max_tokens({4096}) 한도에 걸려 중간에 잘림 — "
+                f"근거 문장을 줄이거나 max_tokens를 더 늘려야 함. 잘린 원문 뒷부분: ...{text[-200:]}"
+            )
     except CommitteeError:
         raise
     except Exception as e:
@@ -111,7 +118,10 @@ def decide(indicators_payload):
     try:
         data = json.loads(m.group(0))
     except json.JSONDecodeError as e:
-        raise CommitteeError(f"응답 JSON 파싱 실패: {e} | 원문: {text[:200]}")
+        raise CommitteeError(
+            f"응답 JSON 파싱 실패: {e} | stop_reason={getattr(resp,'stop_reason',None)} | "
+            f"원문 앞부분: {text[:200]} | 원문 뒷부분: ...{text[-200:]}"
+        )
 
     signal = str(data.get("signal", "")).upper()
     if signal not in VALID_SIGNALS:

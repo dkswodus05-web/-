@@ -5,10 +5,26 @@
   HOLD → 아무것도 안 함
   SELL → 보유면 전량 청산
 """
+import time
 import config
 from broker import Broker
 from risk import check_buy, check_sell, daily_pl
 from trade_logger import log
+
+
+def _refresh_after_trade(broker, symbol, result):
+    """매수/매도 주문을 넣은 직후, 계좌·보유수량을 다시 조회해 result에 반영한다.
+    주문 전에 읽어둔 계좌 상태를 그대로 쓰면 '방금 산 게 보유현황에 안 보이는' 문제가
+    생기므로, 체결이 즉시 반영되도록 잠깐 기다렸다가 다시 읽는다.
+    실패해도 조용히 넘어간다 — 이미 주문 자체는 성공했으므로 매매를 막을 이유는 아님."""
+    try:
+        time.sleep(2)  # Alpaca 체결 반영 시간 대기
+        acc = broker.get_account()
+        result["equity"] = acc.get("equity")
+        result["cash"] = acc.get("cash")
+        result["holding_qty"] = broker.get_position_qty(symbol)
+    except Exception as e:
+        log(f"⚠️ 체결 후 계좌 상태 갱신 실패(주문 자체는 이미 성공): {e}")
 
 
 def _base_result(signal, confidence, symbol, mode):
@@ -85,6 +101,7 @@ def execute_signal(signal, confidence):
                 result["status"] = "OK"
                 result["detail"] = d.reason
                 result["notional"] = d.notional
+                _refresh_after_trade(broker, symbol, result)
             except Exception as e:
                 log(f"⛔ 매수 주문 실패 — 안전 정지: {e}")
                 result["status"] = "ORDER_FAILED"
@@ -107,6 +124,7 @@ def execute_signal(signal, confidence):
             result["action"] = "SELL"
             result["status"] = "OK"
             result["detail"] = d.reason
+            _refresh_after_trade(broker, symbol, result)
         except Exception as e:
             log(f"⛔ 매도 주문 실패 — 안전 정지: {e}")
             result["status"] = "ORDER_FAILED"

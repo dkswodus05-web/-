@@ -255,11 +255,29 @@ function renderAccount(){
     <div class="kv"><span class="k">모드</span><span class="v" style="color:${modeColor}">${latest.mode||"—"}</span></div>
     <div class="kv"><span class="k">최근 갱신</span><span class="v" style="font-size:11px;font-weight:400;color:var(--sub)">${latest.ts?new Date(latest.ts).toLocaleString("ko-KR"):"—"}</span></div>`;
   const qty=+latest.holding_qty||0;
-  if(qty>0){
-    $("holdingsBody").innerHTML=`<table><tr><th>종목</th><th>수량</th></tr><tr><td><b>${latest.symbol||"-"}</b></td><td>${qty}</td></tr></table>`;
-  } else {
-    $("holdingsBody").innerHTML=`<div class="empty">보유 종목 없음 (현금)</div>`;
+  let holdingsHtml = qty>0
+    ? `<table><tr><th>종목</th><th>수량</th></tr><tr><td><b>${latest.symbol||"-"}</b></td><td>${qty}</td></tr></table>`
+    : `<div class="empty">보유 종목 없음 (현금)</div>`;
+
+  // ── 정합성 체크: 매매내역(trade_history) 상 가장 최근 체결과 계좌 스냅샷(account_history)이
+  //    엇갈리면 조용히 잘못된 값을 보여주는 대신 경고를 띄운다.
+  //    (executor.py가 매매 직후 계좌를 다시 읽어 반영하지만, 만에 하나 그 재조회가 실패하거나
+  //    과거에 이 로직이 없던 시절 기록이 남아있으면 이 체크가 그걸 잡아낸다.)
+  const okTrades = tradeHistory.filter(t=>t.status==="OK");
+  const lastTrade = okTrades.length ? okTrades[okTrades.length-1] : null;
+  if(lastTrade && lastTrade.ts && latest.ts && new Date(lastTrade.ts) >= new Date(latest.ts)){
+    const mismatch =
+      (lastTrade.action==="BUY" && qty<=0) ||
+      (lastTrade.action==="SELL" && qty>0);
+    if(mismatch){
+      const when=new Date(lastTrade.ts).toLocaleString("ko-KR");
+      holdingsHtml += `<div style="margin:8px 12px;padding:8px 10px;background:rgba(245,158,11,.12);
+        border:1px solid var(--hold);border-radius:7px;font-size:11px;color:var(--hold);line-height:1.5;">
+        ⚠ 최근 ${lastTrade.action} 체결(${when})과 계좌 스냅샷이 맞지 않습니다.
+        일시적인 갱신 지연일 수 있어요 — 다음 실행 때 자동으로 맞춰집니다.</div>`;
+    }
   }
+  $("holdingsBody").innerHTML = holdingsHtml;
 }
 
 // ── 자산 추이 그래프 (Chart.js) ──

@@ -28,13 +28,24 @@ class Broker:
         }
 
     def get_position_qty(self, symbol):
-        """보유 수량 반환. 포지션 없으면 0."""
+        """보유 수량 반환. 포지션이 정말 없으면 0.
+        ⚠️ '포지션 없음(404)'과 그 외 진짜 오류(인증·네트워크·API 변경 등)를 구분해서,
+           후자는 조용히 0으로 삼키지 않고 로그에 남긴다. 안 그러면 실제로는 보유 중인데도
+           조회가 실패해서 '보유 없음'으로 잘못 표시되는 문제가 원인도 모른 채 반복된다."""
         if config.DRY_RUN:
             return 0.0
         try:
             pos = self.client.get_open_position(symbol)
             return float(pos.qty)
-        except Exception:
+        except Exception as e:
+            msg = str(e).lower()
+            is_no_position = "position does not exist" in msg or "404" in msg
+            if not is_no_position:
+                try:
+                    from trade_logger import log
+                    log(f"⚠️ 포지션 조회 중 예상 밖 오류(일단 보유 없음으로 처리) — 원인 확인 필요: {e}")
+                except Exception:
+                    pass
             return 0.0
 
     def is_market_open(self):

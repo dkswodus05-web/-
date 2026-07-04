@@ -247,9 +247,14 @@ function renderAccount(){
   const base=prev?(+prev.equity||equity):equity;
   const pl=equity-base;
   const plPct=base?(pl/base*100):0;
+  // 누적 손익: 계좌 기록의 첫 스냅샷(시작 자산)을 기준으로 계산
+  const firstEq=+accountHistory[0].equity||equity;
+  const cum=equity-firstEq;
+  const cumPct=firstEq?(cum/firstEq*100):0;
   const modeColor=/DRY/.test(latest.mode||"")?"var(--hold)":/PAPER/.test(latest.mode||"")?"var(--cyan)":"var(--sell)";
   $("accountBody").innerHTML=`
     <div class="kv"><span class="k">총 자산</span><span class="v">$${equity.toLocaleString(undefined,{maximumFractionDigits:0})}</span></div>
+    <div class="kv"><span class="k">누적 손익 (시작 $${firstEq.toLocaleString(undefined,{maximumFractionDigits:0})} 대비)</span><span class="v ${cum>=0?'pos':'neg'}">${cum>=0?'+':''}$${cum.toLocaleString(undefined,{maximumFractionDigits:0})} (${cumPct>=0?'+':''}${cumPct.toFixed(2)}%)</span></div>
     <div class="kv"><span class="k">손익 (전회 대비)</span><span class="v ${pl>=0?'pos':'neg'}">${pl>=0?'+':''}$${pl.toLocaleString(undefined,{maximumFractionDigits:0})} (${plPct>=0?'+':''}${plPct.toFixed(2)}%)</span></div>
     <div class="kv"><span class="k">현금</span><span class="v">$${cash.toLocaleString(undefined,{maximumFractionDigits:0})}</span></div>
     <div class="kv"><span class="k">모드</span><span class="v" style="color:${modeColor}">${latest.mode||"—"}</span></div>

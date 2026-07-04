@@ -74,16 +74,19 @@ def execute_signal(signal, confidence):
     pl = daily_pl(account)
     log(f"계정 상태: 자산 ${account['equity']:,.0f} | 현금 ${account['cash']:,.0f} | 당일손익 {pl*100:+.2f}%")
 
+    # 보유 현황 조회는 휴장 중에도 가능하므로 장 마감 체크보다 먼저 한다.
+    # (안 그러면 휴장일마다 여기 못 와서 holding_qty가 0으로 기록되고,
+    #  대시보드가 실제 보유 중인데도 '보유 종목 없음'으로 표시되는 문제가 생긴다)
+    qty = broker.get_position_qty(symbol)
+    holding = qty > 0
+    result["holding_qty"] = qty
+    log(f"현재 {symbol} 보유: {'있음 (' + str(qty) + '주)' if holding else '없음 (현금)'}")
+
     if not broker.is_market_open():
         log("⏸ 미국 정규장 마감 — 주문 보류 (다음 개장 때 실행)")
         result["status"] = "MARKET_CLOSED"
         result["detail"] = "미국 정규장 마감 — 주문 보류"
         return result
-
-    qty = broker.get_position_qty(symbol)
-    holding = qty > 0
-    result["holding_qty"] = qty
-    log(f"현재 {symbol} 보유: {'있음 (' + str(qty) + '주)' if holding else '없음 (현금)'}")
 
     if signal == "BUY":
         if holding:

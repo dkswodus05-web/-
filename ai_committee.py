@@ -40,8 +40,13 @@ Bull(낙관), Bear(비관), Judge(심판) 세 역할을 한 번에 수행합니�
 2. Bear: 같은 지표를 근거로 매도/관망(SELL/HOLD) 의견의 근거를 3~4개 제시.
    Bull과 동일하게 각 근거를 1~2문장으로 구체적 수치와 인과관계를 포함해 설명할 것.
 3. Judge: Bull과 Bear를 종합해 최종 신호와 확신도를 결정. 불확실하면 보수적으로 HOLD.
-   참고로 5단계 레짐(공격·균형·중립·방어·위기) 관점으로 시장을 분류하면 판단에 도움이 됩니다.
-   note는 2~3문장으로, 왜 이 신호와 확신도를 택했는지 핵심 논리를 설명할 것.
+   또한 시장을 5단계 레짐 중 하나로 분류할 것: "공격", "균형", "중립", "방어", "위기".
+   (공격=강한 위험선호, 균형=완만한 우상향, 중립=방향성 불분명, 방어=위험 신호 누적, 위기=급락 위험)
+   불확실하면 한 단계 보수적인(현금 비중이 큰) 레짐을 택할 것.
+   note는 2~3문장으로, 왜 이 신호·레짐·확신도를 택했는지 핵심 논리를 설명할 것.
+4. Alpha 브리핑(참고용, 자동매매에 사용되지 않음): 전략 유니버스 종목
+   SPY, QQQ, QLD, TQQQ, GLD 각각에 대해 현재 매크로 환경에서의 시각을 1문장으로.
+   stance는 "긍정"/"중립"/"부정" 중 하나. 레버리지 ETF(QLD·TQQQ)는 변동성 위험을 반드시 언급.
 
 이 시스템은 투자 자문이 아니라 도구의 출력입니다. 반드시 아래 JSON 형식으로만,
 다른 설명 텍스트 없이 응답하세요:
@@ -49,8 +54,16 @@ Bull(낙관), Bear(비관), Judge(심판) 세 역할을 한 번에 수행합니�
   "bull": ["구체적 근거 문장1", "구체적 근거 문장2", "구체적 근거 문장3"],
   "bear": ["구체적 근거 문장1", "구체적 근거 문장2", "구체적 근거 문장3"],
   "signal": "BUY 또는 HOLD 또는 SELL 중 하나",
+  "regime": "공격/균형/중립/방어/위기 중 하나",
   "confidence": 0에서 100 사이 정수,
-  "note": "Judge의 종합 판단 (2~3문장)"
+  "note": "Judge의 종합 판단 (2~3문장)",
+  "alpha": [
+    {"symbol": "SPY", "stance": "긍정/중립/부정", "view": "1문장 시각"},
+    {"symbol": "QQQ", "stance": "...", "view": "..."},
+    {"symbol": "QLD", "stance": "...", "view": "..."},
+    {"symbol": "TQQQ", "stance": "...", "view": "..."},
+    {"symbol": "GLD", "stance": "...", "view": "..."}
+  ]
 }"""
 
 
@@ -88,9 +101,9 @@ def decide(indicators_payload):
     try:
         resp = client.messages.create(
             model=ANTHROPIC_MODEL,
-            max_tokens=4096,  # claude-sonnet-5는 답변 전에 내부적으로 생각하는 토큰도
-                              # 이 한도 안에서 쓰기 때문에, 근거를 길게 요청하는 지금
-                              # 프롬프트에서는 여유 있게 잡아야 JSON이 중간에 잘리지 않는다.
+            max_tokens=8192,  # claude-sonnet-5는 답변 전에 내부적으로 생각하는 토큰도
+                              # 이 한도 안에서 쓰기 때문에, 레짐+Alpha 브리핑까지 요청하는
+                              # 지금 프롬프트에서는 여유 있게 잡아야 JSON이 중간에 잘리지 않는다.
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
         )
@@ -102,7 +115,7 @@ def decide(indicators_payload):
             raise CommitteeError(f"응답에 text 블록이 없음 (블록 타입: {[getattr(b,'type',None) for b in resp.content]})")
         if getattr(resp, "stop_reason", None) == "max_tokens":
             raise CommitteeError(
-                f"응답이 max_tokens({4096}) 한도에 걸려 중간에 잘림 — "
+                f"응답이 max_tokens({8192}) 한도에 걸려 중간에 잘림 — "
                 f"근거 문장을 줄이거나 max_tokens를 더 늘려야 함. 잘린 원문 뒷부분: ...{text[-200:]}"
             )
     except CommitteeError:
@@ -140,10 +153,38 @@ def decide(indicators_payload):
             return []
         return [str(p)[:400] for p in points[:5]]
 
+    # 레짐 검증 (Phase 7 리밸런싱용) — 잘못된 값이면 신호를 지어내지 않고 안전 정지.
+    # 단, REBALANCE_MODE가 꺼져 있으면 레짐이 없어도 기존 방식으로 동작해야 하므로 None 허용.
+    import config as _config
+    regime = data.get("regime")
+    if regime is not None:
+        regime = str(regime).strip()
+        if regime not in _config.VALID_REGIMES:
+            raise CommitteeError(f"AI가 알 수 없는 레짐을 냄: {data.get('regime')!r} (허용: {sorted(_config.VALID_REGIMES)})")
+    elif _config.REBALANCE_MODE:
+        raise CommitteeError("리밸런싱 모드인데 AI 응답에 regime이 없음 — 안전 정지")
+
+    def _clean_alpha(items):
+        """Alpha 브리핑(참고용) 정리: 형식이 이상하면 그 항목만 버린다 — 매매에 안 쓰이므로 관대하게."""
+        out = []
+        if not isinstance(items, list):
+            return out
+        for it in items[:10]:
+            if not isinstance(it, dict):
+                continue
+            sym = str(it.get("symbol", "")).upper()[:10]
+            stance = str(it.get("stance", "중립"))[:10]
+            view = str(it.get("view", ""))[:300]
+            if sym and view:
+                out.append({"symbol": sym, "stance": stance, "view": view})
+        return out
+
     return {
         "signal": signal,
         "confidence": confidence,
         "note": str(data.get("note", ""))[:500],
         "bull": _clean_points(data.get("bull", [])),
         "bear": _clean_points(data.get("bear", [])),
+        "regime": regime,
+        "alpha": _clean_alpha(data.get("alpha", [])),
     }

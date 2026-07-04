@@ -48,6 +48,20 @@ class Broker:
                     pass
             return 0.0
 
+    def get_positions(self):
+        """전체 보유 포지션 반환: {심볼: {"qty": 수량, "market_value": 평가금액}}.
+        멀티에셋 리밸런싱(Phase 7)에서 현재 비중 계산에 사용.
+        조회 실패는 조용히 삼키지 않고 예외를 올린다 — 보유 현황을 모르면 매매하면 안 됨."""
+        if config.DRY_RUN:
+            return {}
+        out = {}
+        for pos in self.client.get_all_positions():
+            out[str(pos.symbol).upper()] = {
+                "qty": float(pos.qty),
+                "market_value": float(pos.market_value),
+            }
+        return out
+
     def is_market_open(self):
         if config.DRY_RUN:
             return True
@@ -63,6 +77,21 @@ class Broker:
             symbol=symbol,
             notional=round(notional, 2),
             side=OrderSide.BUY,
+            time_in_force=TimeInForce.DAY,
+        )
+        order = self.client.submit_order(order_data=req)
+        return {"status": str(order.status), "id": str(order.id), "symbol": symbol, "notional": round(notional, 2)}
+
+    def sell_notional(self, symbol, notional):
+        """금액(달러) 기준 시장가 부분 매도. 리밸런싱에서 비중 축소에 사용."""
+        if config.DRY_RUN:
+            return {"status": "DRY_RUN", "side": "sell", "symbol": symbol, "notional": round(notional, 2)}
+        from alpaca.trading.requests import MarketOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        req = MarketOrderRequest(
+            symbol=symbol,
+            notional=round(notional, 2),
+            side=OrderSide.SELL,
             time_in_force=TimeInForce.DAY,
         )
         order = self.client.submit_order(order_data=req)

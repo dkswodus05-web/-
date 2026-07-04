@@ -70,7 +70,7 @@ def _publish_current_state(result=None):
 
     if result is not None and result.get("equity") is not None:
         now_iso = datetime.now(timezone.utc).isoformat()
-        account_history.append({
+        entry = {
             "ts": now_iso,
             "equity": result.get("equity"),
             "cash": result.get("cash"),
@@ -79,10 +79,28 @@ def _publish_current_state(result=None):
             "signal": result.get("signal"),
             "confidence": result.get("confidence"),
             "mode": result.get("mode"),
-        })
+        }
+        # Phase 7: 리밸런싱 결과는 보유 종목이 여러 개 — holdings 리스트와 레짐도 함께 기록
+        if result.get("holdings") is not None:
+            entry["holdings"] = result.get("holdings")
+        if result.get("regime"):
+            entry["regime"] = result.get("regime")
+        account_history.append(entry)
         account_history = account_history[-MAX_ACCOUNT_HISTORY:]
 
-        if result.get("action") in ("BUY", "SELL"):
+        # 단일 종목 모드: action이 BUY/SELL 한 건 / 리밸런싱 모드: trades 리스트 여러 건
+        if result.get("trades"):
+            for t in result["trades"]:
+                trade_history.append({
+                    "ts": now_iso,
+                    "symbol": t.get("symbol"),
+                    "action": t.get("action"),
+                    "notional": t.get("notional"),
+                    "status": t.get("status"),
+                    "detail": t.get("detail"),
+                    "mode": result.get("mode"),
+                })
+        elif result.get("action") in ("BUY", "SELL"):
             trade_history.append({
                 "ts": now_iso,
                 "symbol": result.get("symbol"),
@@ -92,7 +110,7 @@ def _publish_current_state(result=None):
                 "detail": result.get("detail"),
                 "mode": result.get("mode"),
             })
-            trade_history = trade_history[-MAX_TRADE_HISTORY:]
+        trade_history = trade_history[-MAX_TRADE_HISTORY:]
 
     files = {
         "signal.json": signal_txt,
@@ -134,7 +152,8 @@ def main():
 
     log(f"🐂 Bull: {'; '.join(decision['bull']) if decision['bull'] else '(없음)'}")
     log(f"🐻 Bear: {'; '.join(decision['bear']) if decision['bear'] else '(없음)'}")
-    log(f"⚖️ Judge: {decision['signal']} (확신도 {decision['confidence']}) — {decision['note']}")
+    regime_txt = f" | 레짐 {decision['regime']}" if decision.get("regime") else ""
+    log(f"⚖️ Judge: {decision['signal']} (확신도 {decision['confidence']}){regime_txt} — {decision['note']}")
 
     # 3) signal.json 기록 (Phase 3 다리 재사용)
     try:
@@ -142,13 +161,20 @@ def main():
             decision["signal"], decision["confidence"],
             symbol=config.ACTIVE_SYMBOL, note=decision["note"],
             bull=decision.get("bull"), bear=decision.get("bear"),
+            regime=decision.get("regime"), alpha=decision.get("alpha"),
         )
     except SignalError as e:
         log(f"⛔ signal.json 기록 실패 — 안전 정지: {e}")
         return
 
-    # 4) 리스크 게이트 → 주문 실행 (Phase 2 재사용, DRY_RUN 기본)
-    result = execute_signal(decision["signal"], decision["confidence"])
+    # 4) 리스크 게이트 → 주문 실행 (DRY_RUN 기본)
+    #    REBALANCE_MODE=true + 레짐 판정 있음 → 멀티에셋 리밸런싱 (Phase 7)
+    #    아니면 기존 단일 종목 스위칭 (Phase 2)
+    if config.REBALANCE_MODE and decision.get("regime"):
+        from rebalancer import execute_rebalance
+        result = execute_rebalance(decision["regime"], decision["confidence"])
+    else:
+        result = execute_signal(decision["signal"], decision["confidence"])
 
     log("========== 일일 파이프라인 종료 ==========\n")
     return result

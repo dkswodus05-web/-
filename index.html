@@ -260,9 +260,20 @@ function renderAccount(){
     <div class="kv"><span class="k">모드</span><span class="v" style="color:${modeColor}">${latest.mode||"—"}</span></div>
     <div class="kv"><span class="k">최근 갱신</span><span class="v" style="font-size:11px;font-weight:400;color:var(--sub)">${latest.ts?new Date(latest.ts).toLocaleString("ko-KR"):"—"}</span></div>`;
   const qty=+latest.holding_qty||0;
-  let holdingsHtml = qty>0
-    ? `<table><tr><th>종목</th><th>수량</th></tr><tr><td><b>${latest.symbol||"-"}</b></td><td>${qty}</td></tr></table>`
-    : `<div class="empty">보유 종목 없음 (현금)</div>`;
+  // Phase 7: 리밸런싱 모드는 보유 종목이 여러 개 — holdings 배열이 있으면 그걸 우선 표시
+  const multi = Array.isArray(latest.holdings) && latest.holdings.length ? latest.holdings : null;
+  let holdingsHtml;
+  if(multi){
+    holdingsHtml = '<table><tr><th>종목</th><th>수량</th><th>평가금액</th><th>비중</th></tr>'
+      + multi.map(h=>`<tr><td><b>${h.symbol||"-"}</b></td><td>${(+h.qty||0).toLocaleString(undefined,{maximumFractionDigits:3})}</td>`
+        + `<td>$${(+h.market_value||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>`
+        + `<td>${((+h.weight||0)*100).toFixed(1)}%</td></tr>`).join("")
+      + "</table>";
+  } else {
+    holdingsHtml = qty>0
+      ? `<table><tr><th>종목</th><th>수량</th></tr><tr><td><b>${latest.symbol||"-"}</b></td><td>${qty}</td></tr></table>`
+      : `<div class="empty">보유 종목 없음 (현금)</div>`;
+  }
 
   // ── 정합성 체크: 매매내역(trade_history) 상 가장 최근 체결과 계좌 스냅샷(account_history)이
   //    엇갈리면 조용히 잘못된 값을 보여주는 대신 경고를 띄운다.
@@ -270,7 +281,7 @@ function renderAccount(){
   //    과거에 이 로직이 없던 시절 기록이 남아있으면 이 체크가 그걸 잡아낸다.)
   const okTrades = tradeHistory.filter(t=>t.status==="OK");
   const lastTrade = okTrades.length ? okTrades[okTrades.length-1] : null;
-  if(lastTrade && lastTrade.ts && latest.ts && new Date(lastTrade.ts) >= new Date(latest.ts)){
+  if(!multi && lastTrade && lastTrade.ts && latest.ts && new Date(lastTrade.ts) >= new Date(latest.ts)){
     const mismatch =
       (lastTrade.action==="BUY" && qty<=0) ||
       (lastTrade.action==="SELL" && qty>0);
@@ -346,6 +357,19 @@ function renderStrat(){
   else gate=`🛡 확신도 ${conf}≥${MIN_CONF} → 게이트 통과 시 매수`;
   const bull=Array.isArray(signalData.bull)?signalData.bull:[];
   const bear=Array.isArray(signalData.bear)?signalData.bear:[];
+  const regime=signalData.regime||null;
+  const regimeColor={"공격":"var(--buy)","균형":"#22d3ee","중립":"var(--hold)","방어":"#f97316","위기":"var(--sell)"}[regime]||"var(--sub)";
+  const alpha=Array.isArray(signalData.alpha)?signalData.alpha:[];
+  const stanceColor=s=>s==="긍정"?"var(--buy)":s==="부정"?"var(--sell)":"var(--hold)";
+  const alphaHtml=alpha.length?`
+      <div style="margin:12px;padding:0 2px;">
+        <div style="font-size:11px;font-weight:700;color:#22d3ee;margin-bottom:6px;">📊 Alpha 종목 브리핑 <span style="font-weight:400;color:var(--sub)">(참고용 — 자동매매엔 미사용)</span></div>
+        <table style="width:100%;">
+          ${alpha.map(a=>`<tr><td style="width:52px;"><b>${a.symbol}</b></td>
+            <td style="width:44px;color:${stanceColor(a.stance)};font-weight:700;font-size:11px;">${a.stance}</td>
+            <td style="font-size:11px;color:var(--sub);line-height:1.5;">${a.view}</td></tr>`).join("")}
+        </table>
+      </div>`:"";
   const debateHtml=(bull.length||bear.length)?`
       <div style="margin:12px;padding:0 2px;">
         <div style="font-size:11px;font-weight:700;color:var(--buy);margin-bottom:4px;">🐂 Bull 근거</div>
@@ -360,8 +384,11 @@ function renderStrat(){
   $("stratBody").innerHTML=`
     <div style="margin:12px;padding:14px;background:var(--card);border:1px solid var(--line);border-radius:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <b style="font-size:18px;">${sym}</b>
-        <span style="padding:4px 12px;border-radius:999px;font-weight:800;color:${color};border:1.5px solid ${color};">${sig}</span>
+        <b style="font-size:18px;">${regime?'멀티에셋':''} ${sym}</b>
+        <span style="display:flex;gap:6px;align-items:center;">
+          ${regime?`<span style="padding:4px 10px;border-radius:999px;font-weight:800;font-size:12px;color:${regimeColor};border:1.5px solid ${regimeColor};">레짐 ${regime}</span>`:''}
+          <span style="padding:4px 12px;border-radius:999px;font-weight:800;color:${color};border:1.5px solid ${color};">${sig}</span>
+        </span>
       </div>
       <div style="margin:12px 0 6px;font-size:11px;color:var(--sub);">AI 확신도 ${conf}/100</div>
       <div style="height:7px;background:var(--bg);border-radius:5px;overflow:hidden;">
@@ -370,7 +397,8 @@ function renderStrat(){
       <div style="margin-top:10px;font-size:11px;padding:7px 9px;background:rgba(59,130,246,.1);border-radius:7px;color:#93c5fd;">${gate}</div>
       <div style="margin-top:8px;font-size:10px;color:var(--sub);">생성: ${signalData.created_at||"-"}</div>
     </div>
-    ${debateHtml}`;
+    ${debateHtml}
+    ${alphaHtml}`;
 }
 
 // ── 관심종목 (지표 기반 SPY/QQQ) ──

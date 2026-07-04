@@ -35,9 +35,12 @@ class SignalError(Exception):
     pass
 
 
-def write_signal(signal, confidence, symbol=None, note="", bull=None, bear=None):
+def write_signal(signal, confidence, symbol=None, note="", bull=None, bear=None,
+                 regime=None, alpha=None):
     """신호를 signal.json으로 저장 (대시보드 대신 코드로 만들 때 사용).
-    bull/bear: (선택) AI 위원회의 낙관/비관 근거 문자열 리스트. IDE의 토론 근거 표시에 쓰인다."""
+    bull/bear: (선택) AI 위원회의 낙관/비관 근거 문자열 리스트. IDE의 토론 근거 표시에 쓰인다.
+    regime: (선택) 5단계 레짐(공격·균형·중립·방어·위기) — Phase 7 리밸런싱용.
+    alpha: (선택) 종목별 참고 브리핑 리스트 — 표시 전용, 자동매매에 사용되지 않음."""
     signal = (signal or "HOLD").upper()
     if signal not in VALID_SIGNALS:
         raise SignalError(f"알 수 없는 신호: {signal} (BUY/HOLD/SELL 중 하나여야 함)")
@@ -61,6 +64,10 @@ def write_signal(signal, confidence, symbol=None, note="", bull=None, bear=None)
         data["bull"] = [str(x) for x in bull]
     if bear:
         data["bear"] = [str(x) for x in bear]
+    if regime:
+        data["regime"] = str(regime)
+    if alpha:
+        data["alpha"] = alpha
 
     with open(SIGNAL_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

@@ -404,8 +404,8 @@ function renderStrat(){
 // ── 관심종목 (지표 기반 SPY/QQQ) ──
 function renderWatch(){
   const g=n=>{if(!indData)return null;const k=Object.keys(indData.indicators||{}).find(x=>x.includes(n));return k?indData.indicators[k].value:null;};
-  const vix=g("VIX"), sp=g("S&P500");
-  const rows=[["SPY","S&P 500",sp], ["QQQ","Nasdaq 100",null]];
+  const vix=g("VIX"), sp=g("S&P500"), nasdaq=g("나스닥");
+  const rows=[["SPY","S&P 500",sp], ["QQQ","Nasdaq 100",nasdaq]];
   let html='<table><tr><th>티커</th><th>이름</th><th>참고</th></tr>';
   html+=rows.map(r=>`<tr><td><b>${r[0]}</b></td><td style="color:var(--sub)">${r[1]}</td><td>${r[2]!=null?r[2]:"—"}</td></tr>`).join("");
   html+="</table>";

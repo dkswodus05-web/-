@@ -45,16 +45,60 @@ def send(text):
         return False
 
 
+_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 브리핑에 보여줄 주요 지표 (indicators.json의 키 일부와 부분 일치)
+_KEY_INDICATORS = ["장단기_금리차", "VIX", "S&P500", "나스닥", "연준기준금리",
+                   "기대인플레이션", "하이일드", "실업률"]
+
+
+def _read_json(filename):
+    try:
+        with open(os.path.join(_DIR, filename), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
 def notify_result(result):
-    """execute_signal()/execute_rebalance() 결과 dict를 사람이 읽기 좋은 요약으로 전송."""
+    """오늘의 결과를 블로그식 '데일리 브리핑'으로 전송.
+    signal.json(토론 내용)과 indicators.json(지표)을 읽어 살을 붙인다."""
     if not enabled() or not isinstance(result, dict):
         return False
     sig = result.get("signal", "?")
     conf = result.get("confidence", "?")
     emoji = {"BUY": "🟢", "HOLD": "🟡", "SELL": "🔴"}.get(sig, "⚪")
-    lines = [f"{emoji} Signal Invest Pro — 오늘의 결과",
-             f"신호: {sig} (확신도 {conf}) · {result.get('mode', '?')}"]
+    signal_data = _read_json("signal.json") or {}
+    ind_data = _read_json("indicators.json") or {}
 
+    lines = [f"{emoji} Signal Invest Pro — 데일리 브리핑",
+             f"⚖️ 신호: {sig} (확신도 {conf}) · {result.get('mode', '?')}"]
+    if signal_data.get("regime"):
+        lines[-1] += f" · 레짐 {signal_data['regime']}"
+    if signal_data.get("note"):
+        lines.append(f"📝 판결: {signal_data['note'][:400]}")
+
+    # 주요 지표
+    inds = ind_data.get("indicators") or {}
+    picked = []
+    for want in _KEY_INDICATORS:
+        for name, v in inds.items():
+            if want in name and isinstance(v, dict) and v.get("value") is not None:
+                picked.append(f"· {name}: {v['value']}")
+                break
+    if picked:
+        lines.append("\n📊 주요 지표")
+        lines.extend(picked)
+
+    # Bull / Bear 토론
+    for key, head in (("bull", "🐂 낙관(Bull)"), ("bear", "🐻 비관(Bear)")):
+        points = signal_data.get(key) or []
+        if points:
+            lines.append(f"\n{head}")
+            lines.extend(f"· {str(p)[:300]}" for p in points[:4])
+
+    # 주문 / 계좌
+    lines.append("\n💼 실행 결과")
     action = result.get("action")
     trades = result.get("trades")
     if trades:

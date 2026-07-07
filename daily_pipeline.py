@@ -22,6 +22,7 @@ import config
 import fred_collector
 import ai_committee
 import publish_status
+import telegram_notifier
 from signal_io import write_signal, SignalError
 from executor import execute_signal
 from trade_logger import log, LOG_FILE
@@ -132,6 +133,7 @@ def main():
             json.dump(payload, f, ensure_ascii=False, indent=2)
     except Exception as e:
         log(f"⛔ 지표 수집 실패 — 안전 정지: {e}")
+        telegram_notifier.notify_error("지표 수집", e)
         return
 
     got = sum(1 for v in payload["indicators"].values() if v["value"] is not None)
@@ -141,6 +143,7 @@ def main():
     if not payload["ok"]:
         log("⛔ 공식 데이터(FRED) 부족 — 신호를 지어내지 않고 오늘은 안전 정지합니다.")
         log("   (해결: .env에 FRED_API_KEY 입력)")
+        telegram_notifier.notify_error("지표 수집", "공식 데이터(FRED) 부족 — 오늘 매매 없음")
         return
 
     # 2) AI 투자위원회 (Bull/Bear/Judge) — Anthropic API 직접 호출
@@ -148,6 +151,7 @@ def main():
         decision = ai_committee.decide(payload)
     except ai_committee.CommitteeError as e:
         log(f"⛔ AI 위원회 판단 실패 — 안전 정지(매매 안 함): {e}")
+        telegram_notifier.notify_error("AI 위원회", e)
         return
 
     log(f"🐂 Bull: {'; '.join(decision['bull']) if decision['bull'] else '(없음)'}")
@@ -165,6 +169,7 @@ def main():
         )
     except SignalError as e:
         log(f"⛔ signal.json 기록 실패 — 안전 정지: {e}")
+        telegram_notifier.notify_error("signal.json 기록", e)
         return
 
     # 4) 리스크 게이트 → 주문 실행 (DRY_RUN 기본)
@@ -184,6 +189,12 @@ if __name__ == "__main__":
     _result = None
     try:
         _result = main()
+    except Exception as _e:
+        # 예상 못 한 오류도 폰으로 알리고, 원인 추적을 위해 그대로 다시 던진다
+        telegram_notifier.notify_error("파이프라인(예상 밖 오류)", _e)
+        raise
     finally:
         # 성공하든 중간에 안전 정지하든, 지금까지의 상태는 항상 공유 시도
         _publish_current_state(_result)
+        if _result is not None:
+            telegram_notifier.notify_result(_result)

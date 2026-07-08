@@ -67,7 +67,7 @@ def notify_result(result):
         return False
     sig = result.get("signal", "?")
     conf = result.get("confidence", "?")
-    emoji = {"BUY": "🟢", "HOLD": "🟡", "SELL": "🔴"}.get(sig, "⚪")
+    emoji = "🔄" if str(sig).startswith("REBAL") else {"BUY": "🟢", "HOLD": "🟡", "SELL": "🔴"}.get(sig, "⚪")
     signal_data = _read_json("signal.json") or {}
     ind_data = _read_json("indicators.json") or {}
 
@@ -114,7 +114,16 @@ def notify_result(result):
         qty = result.get("holding_qty")
         lines.append(f"계좌: 평가 ${eq:,.2f} · 현금 ${cash:,.2f}" if isinstance(eq, (int, float)) and isinstance(cash, (int, float))
                      else f"계좌: 평가 {eq} · 현금 {cash}")
-        if qty:
+        holdings = result.get("holdings")
+        if isinstance(holdings, list) and holdings:
+            # 리밸런싱 모드: 보유 종목 전체를 비중과 함께 표시
+            for h in holdings:
+                try:
+                    lines.append(f"보유: {h.get('symbol')} {float(h.get('qty') or 0):,.3f}주 "
+                                 f"(${float(h.get('market_value') or 0):,.0f} · {float(h.get('weight') or 0)*100:.1f}%)")
+                except (TypeError, ValueError):
+                    lines.append(f"보유: {h.get('symbol')} {h.get('qty')}주")
+        elif qty:
             lines.append(f"보유: {result.get('symbol')} {qty}주")
     return send("\n".join(lines))
 

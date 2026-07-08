@@ -16,8 +16,10 @@ config.REBALANCE_MODE=true일 때만 daily_pipeline이 이쪽을 탄다.
 """
 import time
 import config
+import telegram_notifier
 from broker import Broker
 from risk import daily_pl
+from sanity import check_account_sanity
 from trade_logger import log
 
 MIN_ORDER_NOTIONAL = 10.0  # 이보다 작은 주문은 스킵 (의미 없는 잔돈 매매 방지)
@@ -99,6 +101,24 @@ def execute_rebalance(regime, confidence):
             log(f"보유: {h['symbol']} {h['qty']}주 (${h['market_value']:,.0f}, {h['weight']*100:.1f}%)")
     else:
         log("보유: 없음 (전량 현금)")
+
+    # 1.5) 계좌 급변 감지 (2026-07-07 Alpaca 글리치 대응) — executor와 동일한 안전장치.
+    # 브로커 응답이 직전 기록과 크게 어긋나면 그 데이터로는 리밸런싱하지 않는다.
+    total_qty = sum(float(p.get("qty") or 0) for p in positions.values())
+    sane, why = check_account_sanity(equity, total_qty)
+    if not sane:
+        log(f"⛔ 계좌 급변 감지 — 브로커 데이터 신뢰 불가, 오늘 리밸런싱 중단: {why}")
+        result["status"] = "SANITY_BLOCKED"
+        result["detail"] = f"계좌 급변 감지 — 리밸런싱 중단: {why}"
+        # 의심스러운 스냅샷은 기록하지 않는다 (히스토리·대시보드 오염 방지)
+        result["equity"] = None
+        result["cash"] = None
+        result["holdings"] = []
+        telegram_notifier.notify_error(
+            "계좌 급변 감지",
+            f"{why}\n오늘 리밸런싱을 중단했습니다. Alpaca 계좌를 직접 확인해보세요. "
+            f"(브로커 일시 오류라면 다음 실행에서 자동 복구됩니다)")
+        return result
 
     # 2) 장 마감이면 주문 보류 (보유 현황은 위에서 이미 기록됨)
     if not broker.is_market_open():

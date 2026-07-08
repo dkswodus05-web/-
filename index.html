@@ -442,13 +442,19 @@ function renderStrat(){
     ${alphaHtml}`;
 }
 
-// ── 관심종목 (지표 기반 SPY/QQQ) ──
+// ── 관심종목 (리밸런싱 유니버스 5종목 · config.py의 UNIVERSE와 동일) ──
 function renderWatch(){
   const g=n=>{if(!indData)return null;const k=Object.keys(indData.indicators||{}).find(x=>x.includes(n));return k?indData.indicators[k].value:null;};
-  const vix=g("VIX"), sp=g("S&P500"), nasdaq=g("나스닥");
-  const rows=[["SPY","S&P 500",sp], ["QQQ","Nasdaq 100",nasdaq]];
+  const vix=g("VIX"), sp=g("S&P500"), nasdaq=g("나스닥"), gold=g("금_선물");
+  const rows=[
+    ["SPY","S&P 500",sp,""],
+    ["QQQ","Nasdaq 100",nasdaq,""],
+    ["QLD","Nasdaq 2x",nasdaq,"⚡레버리지"],
+    ["TQQQ","Nasdaq 3x",nasdaq,"⚡레버리지"],
+    ["GLD","Gold",gold,""],
+  ];
   let html='<table><tr><th>티커</th><th>이름</th><th>참고</th></tr>';
-  html+=rows.map(r=>`<tr><td><b>${r[0]}</b></td><td style="color:var(--sub)">${r[1]}</td><td>${r[2]!=null?r[2]:"—"}</td></tr>`).join("");
+  html+=rows.map(r=>`<tr><td><b>${r[0]}</b>${r[3]?`<span style="font-size:9px;color:var(--hold);margin-left:4px;">${r[3]}</span>`:""}</td><td style="color:var(--sub)">${r[1]}</td><td>${r[2]!=null?r[2]:"—"}</td></tr>`).join("");
   html+="</table>";
   if(vix!=null)html+=`<div style="padding:8px 12px;font-size:11px;color:var(--sub);">VIX ${vix} · ${vix<20?"안정":vix>30?"공포":"보통"}</div>`;
   $("watchBody").innerHTML=html;

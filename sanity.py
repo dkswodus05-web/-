@@ -84,7 +84,10 @@ def check_account_sanity(equity, holding_qty):
                                f"({jump * 100:.1f}% 변동, 한도 {EQUITY_JUMP_LIMIT * 100:.0f}%)")
 
         # 2) 매도 기록 없이 보유 소실
+        # (리밸런싱 모드 기록은 holding_qty 대신 holdings 배열을 쓰므로 둘 다 지원)
         prev_qty = float(prev.get("holding_qty") or 0)
+        if prev_qty <= 0 and isinstance(prev.get("holdings"), list):
+            prev_qty = sum(float(h.get("qty") or 0) for h in prev["holdings"] if isinstance(h, dict))
         if prev_qty > 0 and float(holding_qty or 0) <= 0:
             prev_ts = prev.get("ts") or ""
             sold_since = any(

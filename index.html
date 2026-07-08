@@ -115,7 +115,7 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
     <div class="ic on" title="전략" id="navStrat">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></svg>
     </div>
-    <div class="ic" title="포트폴리오 · 백테스트 성과" id="navBacktest">
+    <div class="ic" title="포트폴리오 (목표 vs 현재 비중 · 백테스트 성과)" id="navBacktest">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="20" x2="5" y2="12"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="19" y1="20" x2="19" y2="4"/></svg>
     </div>
     <div class="ic" title="계정 (내 계좌로 이동)" id="navAccount">
@@ -127,7 +127,10 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
   <div class="modal-overlay" id="backtestModal">
     <div class="modal-box">
       <span class="modal-close" id="closeBacktestModal">✕</span>
-      <h2>백테스트 성과 요약</h2>
+      <h2>포트폴리오</h2>
+      <div class="sub" id="portfolioSub">현재 보유 비중 vs 레짐 목표 비중</div>
+      <div id="portfolioBody" style="margin-top:10px;"></div>
+      <h2 style="margin-top:18px;">백테스트 성과 요약</h2>
       <div class="sub">2016~2026 · SPY 10년 데이터 · Phase 5 검증 결과</div>
       <table class="bt-table">
         <tr><th></th><th>Buy & Hold</th><th>5단계 레짐 전략</th></tr>
@@ -564,7 +567,47 @@ function renderSimReturn(){
   badge.style.color=ret>=0?"var(--buy)":"var(--sell)";
 }
 
-// ── 사이드바 아이콘 (전략 기본화면 / 포트폴리오=백테스트 성과 / 계정=계좌로 이동) ──
+// ── 포트폴리오 모달: 현재 보유 비중 vs 레짐 목표 비중 ──
+// ⚠️ REGIME_WEIGHTS는 config.py와 같은 값으로 유지할 것 (config.py 바꾸면 여기도)
+const REGIME_WEIGHTS={
+  "공격":{SPY:0.30,QQQ:0.25,QLD:0.20,TQQQ:0.10,GLD:0.05},
+  "균형":{SPY:0.30,QQQ:0.20,QLD:0.10,GLD:0.10},
+  "중립":{SPY:0.25,QQQ:0.15,GLD:0.10},
+  "방어":{SPY:0.15,GLD:0.15},
+  "위기":{GLD:0.10},
+};
+const REBAL_BAND=0.05;
+function renderPortfolioModal(){
+  const body=$("portfolioBody"); if(!body)return;
+  const latest=accountHistory.length?accountHistory[accountHistory.length-1]:null;
+  const regime=(latest&&latest.regime)||(signalData&&signalData.regime)||null;
+  const targets=regime?REGIME_WEIGHTS[regime]:null;
+  if(!latest){ body.innerHTML='<div class="empty">계좌 기록이 아직 없습니다</div>'; return; }
+  const equity=+latest.equity||0;
+  // 현재 비중: 리밸런싱 기록(holdings 배열) 우선, 없으면 단일 종목 방식으로 추정
+  const cur={};
+  if(Array.isArray(latest.holdings)&&latest.holdings.length){
+    latest.holdings.forEach(h=>{cur[h.symbol]=+h.weight||((+h.market_value||0)/(equity||1));});
+  }else if(+latest.holding_qty>0&&equity){
+    cur[latest.symbol||"SPY"]=Math.max(0,(equity-(+latest.cash||0))/equity);
+  }
+  const syms=[...new Set([...(targets?Object.keys(targets):[]),...Object.keys(cur)])];
+  $("portfolioSub").textContent=regime?`현재 레짐: ${regime} · 목표 비중과의 차이가 ±${REBAL_BAND*100}%p를 넘으면 다음 실행 때 리밸런싱`:"레짐 판정 전 — 목표 비중은 다음 실행 후 표시";
+  let html='<table class="bt-table"><tr><th>종목</th><th>현재</th><th>목표</th><th>차이</th></tr>';
+  syms.forEach(s=>{
+    const c=cur[s]||0, t=targets?(targets[s]||0):null;
+    const d=t!=null?c-t:null;
+    const over=d!=null&&Math.abs(d)>=REBAL_BAND;
+    html+=`<tr><td><b>${s}</b></td><td>${(c*100).toFixed(1)}%</td><td>${t!=null?(t*100).toFixed(0)+"%":"—"}</td>`
+      +`<td class="${d==null?"":d>=0?"pos":"neg"}" style="${over?"font-weight:700;":""}">${d!=null?(d>=0?"+":"")+(d*100).toFixed(1)+"%p"+(over?" ⚡":""):"—"}</td></tr>`;
+  });
+  const cashW=Math.max(0,1-Object.values(cur).reduce((a,b)=>a+b,0));
+  const cashT=targets?Math.max(0,1-Object.values(targets).reduce((a,b)=>a+b,0)):null;
+  html+=`<tr><td>현금</td><td>${(cashW*100).toFixed(1)}%</td><td>${cashT!=null?(cashT*100).toFixed(0)+"%":"—"}</td><td>—</td></tr></table>`;
+  body.innerHTML=html;
+}
+
+// ── 사이드바 아이콘 (전략 기본화면 / 포트폴리오=목표vs현재+백테스트 / 계정=계좌로 이동) ──
 function setActiveIcon(id){
   document.querySelectorAll(".side .ic").forEach(el=>el.classList.remove("on"));
   $(id).classList.add("on");
@@ -578,6 +621,7 @@ $("navStrat").addEventListener("click",()=>{
 });
 $("navBacktest").addEventListener("click",()=>{
   setActiveIcon("navBacktest");
+  renderPortfolioModal();
   $("backtestModal").classList.add("open");
 });
 $("navAccount").addEventListener("click",()=>{

@@ -7,8 +7,10 @@
 """
 import time
 import config
+import telegram_notifier
 from broker import Broker
 from risk import check_buy, check_sell, daily_pl
+from sanity import check_account_sanity
 from trade_logger import log
 
 
@@ -81,6 +83,23 @@ def execute_signal(signal, confidence):
     holding = qty > 0
     result["holding_qty"] = qty
     log(f"현재 {symbol} 보유: {'있음 (' + str(qty) + '주)' if holding else '없음 (현금)'}")
+
+    # ── 계좌 급변 감지 (2026-07-07 Alpaca 글리치 대응) ──
+    # 브로커 응답이 직전 기록과 크게 어긋나면 그 데이터로는 매매하지 않는다.
+    # (예: 매도 없이 포지션이 사라진 걸로 나오는 순간 BUY 신호가 오면 중복 매수 위험)
+    sane, why = check_account_sanity(result["equity"], qty)
+    if not sane:
+        log(f"⛔ 계좌 급변 감지 — 브로커 데이터 신뢰 불가, 오늘 매매 중단: {why}")
+        result["status"] = "SANITY_BLOCKED"
+        result["detail"] = f"계좌 급변 감지 — 매매 중단: {why}"
+        # 의심스러운 스냅샷은 기록하지 않는다 (히스토리·대시보드 오염 방지)
+        result["equity"] = None
+        result["cash"] = None
+        telegram_notifier.notify_error(
+            "계좌 급변 감지",
+            f"{why}\n오늘 매매를 중단했습니다. Alpaca 계좌를 직접 확인해보세요. "
+            f"(브로커 일시 오류라면 다음 실행에서 자동 복구됩니다)")
+        return result
 
     if not broker.is_market_open():
         log("⏸ 미국 정규장 마감 — 주문 보류 (다음 개장 때 실행)")

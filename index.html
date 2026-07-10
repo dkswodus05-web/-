@@ -159,7 +159,7 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;color:#93c5fd;}
     <div style="padding:10px 12px;"><canvas id="equityChart" height="110"></canvas></div>
     <h3>CURRENT HOLDINGS (보유 종목)</h3>
     <div id="holdingsBody"></div>
-    <h3>WATCHLIST (관심 종목 · SPY/QQQ)</h3>
+    <h3>WATCHLIST (관심 종목 · 전략 유니버스 5)</h3>
     <div id="watchBody"></div>
   </div>
 
@@ -374,6 +374,15 @@ function renderTradeHistory(){
     return;
   }
   const rows=[...tradeHistory].reverse().slice(0,100);
+  // "OrderStatus.PENDING_NEW" 같은 코드 원문을 사람이 읽을 표현으로
+  const prettyStatus=s=>{
+    if(!s)return"";
+    const k=String(s).replace(/^OrderStatus\./,"").toUpperCase();
+    const map={"OK":"✅ 체결","FILLED":"✅ 체결","ACCEPTED":"접수됨","NEW":"접수됨","PENDING_NEW":"접수 대기",
+               "PARTIALLY_FILLED":"부분 체결","CANCELED":"취소됨","EXPIRED":"만료","REJECTED":"❌ 거부",
+               "FAILED":"❌ 실패","BLOCKED":"⛔ 차단"};
+    return map[k]||k;
+  };
   let html='<table><tr><th>시각</th><th>종목</th><th>액션</th><th>금액</th><th>상태</th></tr>';
   html+=rows.map(t=>{
     const c=t.action==="BUY"?"var(--buy)":"var(--sell)";
@@ -381,7 +390,7 @@ function renderTradeHistory(){
     const notional=t.notional?`$${(+t.notional).toLocaleString(undefined,{maximumFractionDigits:0})}`:"—";
     return `<tr><td style="font-size:10px;color:var(--sub);white-space:nowrap;">${ts}</td><td>${t.symbol||"-"}</td>`+
       `<td style="color:${c};font-weight:700;">${t.action}</td><td>${notional}</td>`+
-      `<td style="font-size:10px;color:var(--sub);">${t.status||""}</td></tr>`;
+      `<td style="font-size:10px;color:var(--sub);">${prettyStatus(t.status)}</td></tr>`;
   }).join("");
   html+="</table>";
   $("tradeHistoryBody").innerHTML=html;

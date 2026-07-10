@@ -29,6 +29,7 @@ from trade_logger import log, LOG_FILE
 
 MAX_ACCOUNT_HISTORY = 365   # 계좌 히스토리는 최근 1년 치만 보관
 MAX_TRADE_HISTORY = 500     # 매매 내역은 최근 500건만 보관
+MAX_PERF_LOG = 1000         # 성적표(사례 데이터)는 최근 1000건(약 4년) 보관
 
 
 def _publish_current_state(result=None):
@@ -68,6 +69,12 @@ def _publish_current_state(result=None):
             trade_history = []
     except Exception:
         trade_history = []
+    try:
+        perf_log = json.loads(existing.get("performance_log.json") or "[]")
+        if not isinstance(perf_log, list):
+            perf_log = []
+    except Exception:
+        perf_log = []
 
     if result is not None and result.get("equity") is not None:
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -113,12 +120,39 @@ def _publish_current_state(result=None):
             })
         trade_history = trade_history[-MAX_TRADE_HISTORY:]
 
+        # ── 성적표(사례 데이터) 축적: 그날의 지표 스냅샷 + AI 판단 + 계좌 결과를 매일 1건씩 ──
+        # 성공/실패 라벨은 지금 안 붙인다 — 나중에 "다음날 시장이 어떻게 됐나"로 자동 판별 가능.
+        # 용도: 데이터가 50건 이상 쌓이면 확신도별 실제 적중률을 계산해 MIN_CONFIDENCE 보정.
+        try:
+            ind_snapshot = {}
+            if ind_txt:
+                ind_data = json.loads(ind_txt)
+                ind_snapshot = {k: (v.get("value") if isinstance(v, dict) else None)
+                                for k, v in (ind_data.get("indicators") or {}).items()}
+            executed_trades = [t for t in (result.get("trades") or [])
+                               if t.get("status") not in ("BLOCKED", "FAILED")]
+            perf_log.append({
+                "ts": now_iso,
+                "signal": result.get("signal"),
+                "confidence": result.get("confidence"),
+                "regime": result.get("regime"),
+                "status": result.get("status"),
+                "equity": result.get("equity"),
+                "cash": result.get("cash"),
+                "trades_executed": len(executed_trades) or (1 if result.get("action") in ("BUY", "SELL") else 0),
+                "indicators": ind_snapshot,
+            })
+            perf_log = perf_log[-MAX_PERF_LOG:]
+        except Exception:
+            pass  # 성적표 기록 실패가 본 파이프라인을 막으면 안 됨
+
     files = {
         "signal.json": signal_txt,
         "indicators.json": ind_txt,
         "trades.log": log_txt,
         "account_history.json": json.dumps(account_history, ensure_ascii=False, indent=2),
         "trade_history.json": json.dumps(trade_history, ensure_ascii=False, indent=2),
+        "performance_log.json": json.dumps(perf_log, ensure_ascii=False, indent=2),
     }
     publish_status.publish(files)
 
